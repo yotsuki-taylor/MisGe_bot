@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="ka">
+<head>
+<script async src="https://www.googletagmanager.com/gtag/js?id=UA-121003137-1"></script><script>window.dataLayer = window.dataLayer || [];function gtag(){dataLayer.push(arguments);} gtag('js', new Date());gtag('config', 'UA-121003137-1');</script>
+<title>წამლის მოძებნა მობილურით, სმარტფონით mis.ge</title>
+<meta charset="UTF-8">
+<meta name="keywords" content="მედიკამენტი,მედიკამენტის ძებნა,წამალი,აფთიაქი,ძებნა აფთიაქში,წამლის ფას,medikamentis zebna, wamlis zebna,drug,drugstore,pharmacy,generic,ATC classification,pharmacological group,find drug Georgia,ლაციპილი,ვისგლიკ,ფეზამი,ნიზორალი,ნიმესილი,გაბაგამა,ქსანაქსი">
+<meta name="description" content="Find Information on drug and medicine and pharmacy and drugstore in Tbilisi in Georgia in Caucasus">
+<meta property="og:description" content="Find Information on drug and medicine and pharmacy and drugstore in Tbilisi in Georgia in Caucasus">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="../css/styles.css">
+<script  type="text/javascript" src="../script/script.js"></script>
+<link rel="shortcut icon" href="../images/favicon.ico" type="image/x-icon" />
+<noscript>
+<style> h4{padding:5px 25% 5px 25%;}
+</style>
+<h4>This web site needs javascript activated to work properly. Please activate it. Here are the <a href="http://www.enable-javascript.com" target="_blank"> instructions how to enable JavaScript in your web browser</a>, Thanks.</h4>
+</noscript>
+</head>
+<body style="margin: 0px 0px 0px 0px;">
+<script type="text/javascript">
+<!--
+if(typeof window.innerWidth != 'undefined'){
+if(window.innerWidth>800){
+window.location = "mis.mis"+window.location.search;}}
+else{if(typeof window.screen.availWidth != 'undefined'){
+if(window.screen.availWidth>800 ){
+window.location = "mis.mis"+window.location.search;}}}
+-->
+</script>
+<header>
+<div ><a href="mis_mobiluri.mis"><img  src="../images/logo_geo_m_tetri.png" alt="logo MIS" style = "display: block;width:86px;height:110px;"></a></div><br>
+</header>
+<form method ="GET">
+<input type="hidden" name="c" id="c" value="1"/>
+<input type="hidden" name="d" id="d" value="0"/>
+<div style = "display: table;margin-left: auto;margin-right: auto;">
+<div style =  "display: table-row;">
+<div style =  "display: table-cell;">
+<label for="name"></label>
+<input type="text" id="name" name="user_name" value="მედიკამენტი" onfocus="this.value=''" style = "color:grey;width:90%;height:35px;font-size: 15px;">
+</div>
+<div style =  "display: table-cell;align-content: center;padding: 10px 10px;">
+<button type="submit" style =  "border-radius: 50%;background-color: grey; color: white; font-size: 14px;padding: 8px 8px; font-weight: bold;">ძებნა</button>
+</div>
+</div>
+<div style =  "display: table-row;">
+<label for="zebna_dasawyisit" style = "font-size: 10px;">სიტყვის დასაწყისი</label>
+<input type="checkbox" id="zebna_dasawyisit" value="1" checked = "checked" onchange="zebnadasawyisit(this)" >
+</div>
+<br>
+<div style = "display: table-row;">
+<label for="zebna_generikit" style = "font-size: 10px;">საერთაშორისო დასახელება</label>
+<input type="checkbox" id="zebna_generikit" value="1"  onchange="zebnagenerikit()" >
+</div>
+</div>
+</form>
+<br><div align="center" style="color: grey;font-size: 10px; font-style: italic;   p">მოიძებნა 29 შედეგი.</div><br>
+<form method ="POST" action ="mis_aftiaqebi.mis" target="_blank">
+<table align="center"> 
+<tr>
+<td><div  align="right" style="font-size:12px">ქალაქი</div></td>
+<td><div><select  name = "qalaqi" id = "qalaqi_id" style="WIDTH: %100; visibility: visible; display = block" size="1" onchange="f_qalaqi()"><option value="0">ყველგან</option>
+<option value="3">ამბროლაური</option>
+<option value="4">ახალციხე</option>
+<option value="5">ბათუმი</option>
+<option value="6">გორი</option>
+<option value="7">გურჯაანი</option>
+<option value="8">დმანისი</option>
+<option value="9">ზესტაფონი</option>
+<option value="10">ზუგდიდი</option>
+<option value="1">თბილისი</option>
+<option value="11">თელავი</option>
+<option value="12">მარნეული</option>
+<option value="13">მცხეთა</option>
+<option value="14">ოზურგეთი</option>
+<option value="15">რუსთავი</option>
+<option value="16">სამტრედია</option>
+<option value="17">სენაკი</option>
+<option value="21">სურამი</option>
+<option value="18">ფოთი</option>
+<option value="2">ქუთაისი</option>
+<option value="19">წყნეთი</option>
+<option value="20">ხაშური</option>
+</select></div></td>
+</tr>
+<tr>
+<td><div  align="right" style="font-size:12px">უბანი</div></td>
+<td><div><select  name = "ubani" id = "ubani_id" style="WIDTH: %100; visibility: visible; display = block" size="1" onchange="f_ubani()">
+<option value="0">ყველგან</option>
+<option value="61">ავლაბარი</option>
+<option value="63">ავჭალა</option>
+<option value="181">აფრიკა</option>
+<option value="67">აღმაშენებელი</option>
+<option value="68">ბაგები</option>
+<option value="23">გლდანი</option>
+<option value="19">გურამიშვილი</option>
+<option value="15">დიდი დიღომი</option>
+<option value="71">დიდუბე</option>
+<option value="35">დისტრიბუტორი</option>
+<option value="74">დიღმის მასივი</option>
+<option value="78">ვაზისუბანი</option>
+<option value="75">ვაკე</option>
+<option value="37">ვარკეთილი</option>
+<option value="79">ვაშლიჯვარი</option>
+<option value="21">ვერა</option>
+<option value="80">ვეძისი</option>
+<option value="82">თემქა</option>
+<option value="26">ისანი</option>
+<option value="36">კოლმეურნეობის მოედანი</option>
+<option value="20">კრწანისი</option>
+<option value="83">კუკია</option>
+<option value="161">ლილო</option>
+<option value="84">ლოტკინი</option>
+<option value="34">მარჯანიშვილი</option>
+<option value="201">მარჯვენა სანაპირო</option>
+<option value="85">მესამე მასივი</option>
+<option value="86">მეტრომშენი</option>
+<option value="17">მთაწმინდა</option>
+<option value="16">მოსკოვის გამზირი</option>
+<option value="14">მუხიანი</option>
+<option value="22">ნავთლუღი</option>
+<option value="89">ნაძალადევი</option>
+<option value="91">ორთაჭალა</option>
+<option value="92">ორხევი</option>
+<option value="93">ოქროსუბანი</option>
+<option value="96">რუსთაველი</option>
+<option value="102">საბურთალო</option>
+<option value="103">სადგური</option>
+<option value="32">სამგორი</option>
+<option value="108">სანზონა</option>
+<option value="109">სვანეთის უბანი</option>
+<option value="38">სოლოლაკი</option>
+<option value="97">ფონიჭალა</option>
+<option value="110">ჩუღურეთი</option>
+</select></div></td>
+</tr>
+<tr>
+<td><div  align="right" style="font-size:12px">ქვეუბანი</div></td>
+<td><div><select  name = "qveubani" id = "qveubani_id" style="WIDTH: %100; visibility: visible; display = block" size="1" onchange="f_qveubani()"><option value="0">ყველგან</option>
+<option value="2">I კლინიკური საავადმყოფო</option>
+<option value="3">M ავლაბარი</option>
+<option value="33">M გურამიშვილი</option>
+<option value="28">M დელისი</option>
+<option value="8">M დიდუბე</option>
+<option value="29">M ვაჟა-ფშაველა</option>
+<option value="26">M თავისუფლების მოედანი</option>
+<option value="5">M მარჯანიშვილი</option>
+<option value="21">M ნაძალადევი</option>
+<option value="30">M პოლიტექნიკური</option>
+<option value="17">M რუსთაველი</option>
+<option value="31">M სამედიცინო ინსტიტუტი</option>
+<option value="18">M სარაჯიშვილი</option>
+<option value="36">M სახელმწიფო უნივერსიტეტი</option>
+<option value="34">M ღრმაღელე</option>
+<option value="9">M წერეთელი</option>
+<option value="11">ბაზარი</option>
+<option value="24">ბალნეოლოგიური</option>
+<option value="22">გადასასვლელი ხიდი</option>
+<option value="10">გამოფენა</option>
+<option value="6">გერმანიის საელჩო</option>
+<option value="1">დოლიძე</option>
+<option value="15">ვაკის პარკი</option>
+<option value="19">ზღვისუბანი</option>
+<option value="25">თვალის კლინიკა</option>
+<option value="14">"ლეჩკომბინატი"</option>
+<option value="20">მე-5 სამშობიარო</option>
+<option value="35">მე-8 სავადმყოფო</option>
+<option value="16">მე-9 საავადმყოფო</option>
+<option value="4">"მიხეილის" საავადმყოფო</option>
+<option value="32">ნუცუბიძის პლატო</option>
+<option value="27">ოპერა</option>
+<option value="23">პირველი სამშობიარო</option>
+<option value="12">პროსპექტი</option>
+<option value="7">რკინიგზელთა სახლი</option>
+<option value="13">საავადმყოფოები</option>
+</select></div></td>
+</tr>
+<tr>
+<td><div style="WIDTH: 25"></div></td>
+<td><div align="center"><input type="submit" value="ძებნა აფთიაქებში" style="background-color: #ff8533; color: #ffffff; font-weight: bold; border-radius: 3%; border: none; height: 40px;position: -webkit-sticky;position: sticky;position: fixed;left: 0;-webkit-backface-visibility: hidden;"></div></td>
+</tr>
+</table>
+&nbsp<br><br>
+<table class="table_medikamentebi" id="table_medikamentebi">
+<thead>
+<tr>
+<th>არჩევა</th><th onclick="sortTable(1)">დასახელება <a href="#" style="text-decoration: none">&#9650 &#9660</a></th><th onclick="sortTable(2)">საერთაშორისო დასახელება <a href="#" style="text-decoration: none">&#9650 &#9660</a></th><th onclick="sortTable(3)">ქვეყანა <a href="#" style="text-decoration: none">&#9650 &#9660</a></th><th onclick="sortTable(4)">კომპანია <a href="#" style="text-decoration: none">&#9650 &#9660</a></th><th>რეგისტრაციის # და თარიღი</th><th>გაცემის რეჟიმი</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><input type="checkbox" name="8D04DC19D9A1E25F51B8F06BE3B2E0EE" onclick="gaferadeba(this)" >
+</td>
+<td>
+<a target="_blank" href="./mis_medikamenti.mis?8D04DC19D9A1E25F51B8F06BE3B2E0EE=m">ნუროფენ ექსპრესი 200მგ შემოგარსული აბი - #16</a>
+</td>
+<td><a target="_blank" href="./mis_generiki.mis?4EE68ED70E9E6CBB078403F849E5BB8E=g">იბუპროფენი</a></td><td>ნიდერლანდები</td>
+<td>
+<a target="_blank" href="./mis_firma.mis?8D04DC19D9A1E25F51B8F06BE3B2E0EE=f">რექით ბენქაიზერ</a>
+</td>
+<td><h5>#რ-045770 2026-06-25 - 2027-10-21</h5></td><td><h5>III ჯგუფი, გაიცემა რეცეპტის გარეშე</h5></td>
+</tr>
+<tr>
+<td><input type="checkbox" name="992019253B645D38BCEEC106A58BC8E0" onclick="gaferadeba(this)" >
+</td>
+<td>
+<a target="_blank" href="./mis_medikamenti.mis?992019253B645D38BCEEC106A58BC8E0=m">ნუროფენ ექსპრესი 200მგ შემოგარსული აბი - #24</a>
+</td>
+<td><a target="_blank" href="./mis_generiki.mis?4EE68ED70E9E6CBB078403F849E5BB8E=g">იბუპროფენი</a></td><td>დიდი ბრიტანეთი</td>
+<td>
+<a target="_blank" href="./mis_firma.mis?992019253B645D38BCEEC106A58BC8E0=f">რექით ბენქაიზერ</a>
+</td>
+<td><h5></h5></td><td><h5></h5></td>
+</tr>
+<tr>
+<td><input type="checkbox" name="A5241136E0C8C76E10159573070F8726" onclick="gaferadeba(this)" >
+</td>
+<td>
+<a target="_blank" href="./mis_medikamenti.mis?A5241136E0C8C76E10159573070F8726=m">ნუროფენ ექსპრესი 200მგ შემოგარსული აბი - #8</a>
+</td>
+<td><a target="_blank" href="./mis_generiki.mis?4EE68ED70E9E6CBB078403F849E5BB8E=g">იბუპროფენი</a></td><td>ნიდერლანდები</td>
+<td>
+<a target="_blank" href="./mis_firma.mis?A5241136E0C8C76E10159573070F8726=f">რექით ბენქაიზერ</a>
+</td>
+<td><h5>#რ-045769 2026-06-25 - 2027-10-21</h5></td><td><h5>III ჯგუფი, გაიცემა რეცეპტის გარეშე</h5></td>
+</tr>
+<tr>
+<td><input type="checkbox" name="5CECC9ABA19495434BB2513EA933A54C" onclick="gaferadeba(this)" >
+</td>
+<td>
+<a target="_blank" href="./mis_medikamenti.mis?5CECC9ABA19495434BB2513EA933A54C=m">ნუროფენ ექსპრესი ნეო 200მგ შემოგარსული აბი - #24</a>
+</td>
+<td><a target="_blank" href="./mis_generiki.mis?4EE68ED70E9E6CBB078403F849E5BB8E=g">იბუპროფენი</a></td><td>დიდი ბრიტანეთი</td>
+<td>
+<a target="_blank" href="./mis_firma.mis?5CECC9ABA19495434BB2513EA933A54C=f">რექით ბენქაიზერ</a>
+</td>
+<td><h5></h5></td><td><h5>III ჯგუფი, გაიცემა რეცეპტის გარეშე</h5></td>
+</tr>
+<tr>
+<td><input type="checkbox" name="DA14DF96D87C1D7100A75D4CBD89004C" onclick="gaferadeba(this)" >
+</td>
+<td>
+<a target="_blank" href="./mis_medikamenti.mis?DA14DF96D87C1D7100A75D4CBD89004C=m">ნუროფენ ექსპრესი ნეო 200მგ შემოგარსული აბი - #6</a>
+</td>
+<td><a target="_blank" href="./mis_generiki.mis?4EE68ED70E9E6CBB078403F849E5BB8E=g">იბუპროფენი</a></td><td>დიდი ბრიტანეთი</td>
+<td>
+<a target="_blank" href="./mis_firma.mis?DA14DF96D87C1D7100A75D4CBD89004C=f">რექით ბენქაიზერ</a>
+</td>
+<td><h5></h5></td><td><h5>III ჯგუფი, გაიცემა რეცეპტის გარეშე</h5></td>
+</tr>
+<tr>
+<td><input type="checkbox" name="CF15258EB2F077349FC5442ABC046F40" onclick="gaferadeba(this)" >
+</td>
+<td>
+<a target="_blank" href="./mis_medikamenti.mis?CF15258EB2F077349FC5442ABC046F40=m">ნუროფენ ექსპრეს ფორტე 400მგ რბილი კაფსულა - #10</a>
+</td>
+<td><a target="_blank" href="./mis_generiki.mis?4EE68ED70E9E6CBB078403F849E5BB8E=g">იბუპროფენი</a></td><td>ნიდერლანდები</td>
+<td>
+<a target="_blank" href="./mis_firma.mis?CF15258EB2F077349FC5442ABC046F40=f">რექით ბენქაიზერ</a>
+</td>
+<td><h5>#რ-040792 2024-04-18 - 2029-04-18</h5></td><td><h5>III ჯგუფი, გაიცემა რეცეპტის გარეშე</h5></td>
+</tr>
+<tr>
+<td><input type="checkbox" name="98CC6E1F6695EF7514121F7CC1C518A2" onclick="gaferadeba(this)" >
+</td>
+<td>
+<a target="_blank" href="./mis_medikamenti.mis?98CC6E1F6695EF7514121F7CC1C518A2=m">ნუროფენ ექსპრეს ფორტე 400მგ რბილი კაფსულა - #20</a>
+</td>
+<td><a target="_blank" href="./mis_generiki.mis?4EE68ED70E9E6CBB078403F849E5BB8E=g">იბუპროფენი</a></td><td>ნიდერლანდები</td>
+<td>
+<a target="_blank" href="./mis_firma.mis?98CC6E1F6695EF7514121F7CC1C518A2=f">რექით ბენქაიზერ</a>
+</td>
+<td><h5>#რ-040793 2024-04-18 - 2029-04-18</h5></td><td><h5>III ჯგუფი, გაიცემა რეცეპტის გარეშე</h5></td>
+</tr>
+<tr>
+<td><input type="checkbox" name="98FE233982AFA899F635BF138FE9146C" onclick="gaferadeba(this)" >
+</td>
+<td>
+<a target="_blank" href="./mis_medikamenti.mis?98FE233982AFA899F635BF138FE9146C=m">ნუროფენი 200მგ შემოგარსული აბი - #10</a>
+</td>
+<td><a target="_blank" href="./mis_generiki.mis?4EE68ED70E9E6CBB078403F849E5BB8E=g">იბუპროფენი</a></td><td>დიდი ბრიტანეთი</td>
+<td>
+<a target="_blank" href="./mis_firma.mis?98FE233982AFA899F635BF138FE9146C=f">რექით ბენქაიზერ</a>
+</td>
+<td><h5>#რ-038021 2023-05-05 - 2028-05-05</h5></td><td><h5>III ჯგუფი, გაიცემა რეცეპტის გარეშე</h5></td>
+</tr>
+<tr>
+<td><input type="checkbox" name="400E1AEFB08D6A204C3F18775EFCB6FA" onclick="gaferadeba(this)" >
+</td>
+<td>
+<a target="_blank" href="./mis_medikamenti.mis?400E1AEFB08D6A204C3F18775EFCB6FA=m">ნუროფენი 200მგ შემოგარსული აბი - #12</a>
+</td>
+<td><a target="_blank" href="./mis_generiki.mis?4EE68ED70E9E6CBB078403F849E5BB8E=g">იბუპროფენი</a></td><td>დიდი ბრიტანეთი</td>
+<td>
+<a target="_blank" href="./mis_firma.mis?400E1AEFB08D6A204C3F18775EFCB6FA=f">რექით ბენქაიზერ</a>
+</td>
+<td><h5></h5></td><td><h5></h5></td>
+</tr>
+<tr>
+<td><input type="checkbox" name="B7547855273A3D7D5316C3745321165D" onclick="gaferadeba(this)" >
+</td>
+<td>
+<a target="_blank" href="./mis_medikamenti.mis?B7547855273A3D7D5316C3745321165D=m">ნუროფენი 200მგ შემოგარსული აბი - #20</a>
+</td>
+<td><a target="_blank" href="./mis_generiki.mis?4EE68ED70E9E6CBB078403F849E5BB8E=g">იბუპროფენი</a></td><td>დიდი ბრიტანეთი</td>
+<td>
+<a target="_blank" href="./mis_firma.mis?B7547855273A3D7D5316C3745321165D=f">რექით ბენქაიზერ</a>
+</td>
+<td><h5>#რ-038022 2023-05-05 - 2028-05-05</h5></td><td><h5>III ჯგუფი, გაიცემა რეცეპტის გარეშე</h5></td>
+</tr>
+<tr>
+<td><input type="checkbox" name="AEF3C7FD7AF2C22F62253F05E0313D31" onclick="gaferadeba(this)" >
+</td>
+<td>
+<a target="_blank" href="./mis_medikamenti.mis?AEF3C7FD7AF2C22F62253F05E0313D31=m">ნუროფენი 200მგ შემოგარსული აბი - #24</a>
+</td>
+<td><a target="_blank" href="./mis_generiki.mis?4EE68ED70E9E6CBB078403F849E5BB8E=g">იბუპროფენი</a></td><td>დიდი ბრიტანეთი</td>
+<td>
+<a target="_blank" href="./mis_firma.mis?AEF3C7FD7AF2C22F62253F05E0313D31=f">რექით ბენქაიზერ</a>
+</td>
+<td><h5>#რ-024942-1 2018-09-17 - 2023-04-13</h5></td><td><h5>III ჯგუფი, გაიცემა რეცეპტის გარეშე</h5></td>
+</tr>
+<tr>
+<td><input type="checkbox" name="D166F293AC6CA19102FD0F30EC2CC9EA" onclick="gaferadeba(this)" >
+</td>
+<td>
+<a target="_blank" href="./mis_medikamenti.mis?D166F293AC6CA19102FD0F30EC2CC9EA=m">ნუროფენი 200მგ შემოგარსული აბი - #48</a>
+</td>
+<td><a target="_blank" href="./mis_generiki.mis?4EE68ED70E9E6CBB078403F849E5BB8E=g">იბუპროფენი</a></td><td>დიდი ბრიტანეთი</td>
+<td>
+<a target="_blank" href="./mis_firma.mis?D166F293AC6CA19102FD0F30EC2CC9EA=f">რექით ბენქაიზერ</a>
+</td>
+<td><h5></h5></td><td><h5></h5></td>
+</tr>
+<tr>
+<td><input type="checkbox" name="4246B46CF726C623C310B44CFDF721F2" onclick="gaferadeba(this)" >
+</td>
+<td>
+<a target="_blank" href="./mis_medikamenti.mis?4246B46CF726C623C310B44CFDF721F2=m">ნუროფენი 200მგ შემოგარსული აბი - #6</a>
+</td>
+<td><a target="_blank" href="./mis_generiki.mis?4EE68ED70E9E6CBB078403F849E5BB8E=g">იბუპროფენი</a></td><td>დიდი ბრიტანეთი</td>
+<td>
+<a target="_blank" href="./mis_firma.mis?4246B46CF726C623C310B44CFDF721F2=f">რექით ბენქაიზერ</a>
+</td>
+<td><h5></h5></td><td><h5>III ჯგუფი, გაიცემა რეცეპტის გარეშე</h5></td>
+</tr>
+<tr>
+<td><input type="checkbox" name="424A48D71F2716D3F9871D8B58196C3C" onclick="gaferadeba(this)" >
+</td>
+<td>
+<a target="_blank" href="./mis_medikamenti.mis?424A48D71F2716D3F9871D8B58196C3C=m">ნუროფენი 200მგ შემოგარსული აბი - #8</a>
+</td>
+<td><a target="_blank" href="./mis_generiki.mis?4EE68ED70E9E6CBB078403F849E5BB8E=g">იბუპროფენი</a></td><td>დიდი ბრიტანეთი</td>
+<td>
+<a target="_blank" href="./mis_firma.mis?424A48D71F2716D3F9871D8B58196C3C=f">რექით ბენქაიზერ</a>
+</td>
+<td><h5></h5></td><td><h5></h5></td>
+</tr>
+<tr>
+<td><input type="checkbox" name="D6E2D6698EB12287CC54733CA5A66F56" onclick="gaferadeba(this)" >
+</td>
+<td>
+<a target="_blank" href="./mis_medikamenti.mis?D6E2D6698EB12287CC54733CA5A66F56=m">ნუროფენი 200მგ შუშხუნა აბი - #10</a>
+</td>
+<td><a target="_blank" href="./mis_generiki.mis?4EE68ED70E9E6CBB078403F849E5BB8E=g">იბუპროფენი</a></td><td>იტალია</td>
+<td>
+<a target="_blank" href="./mis_firma.mis?D6E2D6698EB12287CC54733CA5A66F56=f">რექით ბენქაიზერ</a>
+</td>
+<td><h5></h5></td><td><h5></h5></td>
+</tr>
+<tr>
+<td><input type="checkbox" name="DED190FF6BBBE762C44757EEE1314CAB" onclick="gaferadeba(this)" >
+</td>
+<td>
+<a target="_blank" href="./mis_medikamenti.mis?DED190FF6BBBE762C44757EEE1314CAB=m">ნუროფენი 60მგ რექტალური სანთელი - #10</a>
+</td>
+<td><a target="_blank" href="./mis_generiki.mis?4EE68ED70E9E6CBB078403F849E5BB8E=g">იბუპროფენი</a></td><td>საბერძნეთი</td>
+<td>
+<a target="_blank" href="./mis_firma.mis?DED190FF6BBBE762C44757EEE1314CAB=f">რექით ბენქაიზერ</a>
+</td>
+<td><h5>#რ-032520 2021-03-06 - 2026-03-06</h5></td><td><h5>III ჯგუფი, გაიცემა რეცეპტის გარეშე</h5></td>
+</tr>
+<tr>
+<td><input type="checkbox" name="0E5E259471ED0E3880C4F40D4E52DDD0" onclick="gaferadeba(this)" >
+</td>
+<td>
+<a target="_blank" href="./mis_medikamenti.mis?0E5E259471ED0E3880C4F40D4E52DDD0=m">ნუროფენი ბავშვის მარწყვის გემოთი 100მგ/5მლ ორალური სუსპენზია 150მლ ფლაკონი #1</a>
+</td>
+<td><a target="_blank" href="./mis_generiki.mis?4EE68ED70E9E6CBB078403F849E5BB8E=g">იბუპროფენი</a></td><td>დიდი ბრიტანეთი</td>
+<td>
+<a target="_blank" href="./mis_firma.mis?0E5E259471ED0E3880C4F40D4E52DDD0=f">რექით ბენქაიზერ</a>
+</td>
+<td><h5>#რ-045744 2026-06-23 - 2031-06-23</h5></td><td><h5>III ჯგუფი, გაიცემა რეცეპტის გარეშე</h5></td>
+</tr>
+<tr>
+<td><input type="checkbox" name="B2B780DCA0D605C738672E6650555D47" onclick="gaferadeba(this)" >
+</td>
+<td>
+<a target="_blank" href="./mis_medikamenti.mis?B2B780DCA0D605C738672E6650555D47=m">ნუროფენი ბავშვის მარწყვის გემოთი 100მგ/5მლ ორალური სუსპენზია 200მლ ფლაკონი #1</a>
+</td>
+<td><a target="_blank" href="./mis_generiki.mis?4EE68ED70E9E6CBB078403F849E5BB8E=g">იბუპროფენი</a></td><td>დიდი ბრიტანეთი</td>
+<td>
+<a target="_blank" href="./mis_firma.mis?B2B780DCA0D605C738672E6650555D47=f">რექით ბენქაიზერ</a>
+</td>
+<td><h5>#რ-045745 2026-06-23 - 2031-06-23</h5></td><td><h5>III ჯგუფი, გაიცემა რეცეპტის გარეშე</h5></td>
+</tr>
+<tr>
+<td><input type="checkbox" name="899B0F8A78DA6813F53BA2B4C86FEF97" onclick="gaferadeba(this)" >
+</td>
+<td>
+<a target="_blank" href="./mis_medikamenti.mis?899B0F8A78DA6813F53BA2B4C86FEF97=m">ნუროფენი ბავშვის მარწყვის გემოთი 100მგ/5მლ სუსპენზია 100მლ ფლაკონი #1</a>
+</td>
+<td><a target="_blank" href="./mis_generiki.mis?4EE68ED70E9E6CBB078403F849E5BB8E=g">იბუპროფენი</a></td><td>დიდი ბრიტანეთი</td>
+<td>
+<a target="_blank" href="./mis_firma.mis?899B0F8A78DA6813F53BA2B4C86FEF97=f">რექით ბენქაიზერ</a>
+</td>
+<td><h5>#რ-035561 2022-06-15 - 2023-02-22</h5></td><td><h5>III ჯგუფი, გაიცემა რეცეპტის გარეშე</h5></td>
+</tr>
+<tr>
+<td><input type="checkbox" name="C22EF466665A6C8B4DA11034F34C6BF4" onclick="gaferadeba(this)" >
+</td>
+<td>
+<a target="_blank" href="./mis_medikamenti.mis?C22EF466665A6C8B4DA11034F34C6BF4=m">ნუროფენი ბავშვის ფორთოხლის გემოთი 100მგ/5მლ ორალური სუსპენზია 150მლ ფლაკონი #1</a>
+</td>
+<td><a target="_blank" href="./mis_generiki.mis?4EE68ED70E9E6CBB078403F849E5BB8E=g">იბუპროფენი</a></td><td>დიდი ბრიტანეთი</td>
+<td>
+<a target="_blank" href="./mis_firma.mis?C22EF466665A6C8B4DA11034F34C6BF4=f">რექით ბენქაიზერ</a>
+</td>
+<td><h5>#რ-045676 2026-06-11 - 2031-06-11</h5></td><td><h5>III ჯგუფი, გაიცემა რეცეპტის გარეშე</h5></td>
+</tr>
+<tr>
+<td><input type="checkbox" name="A7696162953FCE7EEA241E760F21F486" onclick="gaferadeba(this)" >
+</td>
+<td>
+<a target="_blank" href="./mis_medikamenti.mis?A7696162953FCE7EEA241E760F21F486=m">ნუროფენი ბავშვის ფორთოხლის გემოთი 100მგ/5მლ ორალური სუსპენზია 150მლ ფლაკონი #1</a>
+</td>
+<td><a target="_blank" href="./mis_generiki.mis?4EE68ED70E9E6CBB078403F849E5BB8E=g">იბუპროფენი</a></td><td>ინდოეთი</td>
+<td>
+<a target="_blank" href="./mis_firma.mis?A7696162953FCE7EEA241E760F21F486=f">რექით ბენქაიზერ</a>
+</td>
+<td><h5>#რ-039422 2023-10-24 - 2028-06-28</h5></td><td><h5>III ჯგუფი, გაიცემა რეცეპტის გარეშე</h5></td>
+</tr>
+<tr>
+<td><input type="checkbox" name="EBCA646BEC9AF90E8E1FFCD55A951B85" onclick="gaferadeba(this)" >
+</td>
+<td>
+<a target="_blank" href="./mis_medikamenti.mis?EBCA646BEC9AF90E8E1FFCD55A951B85=m">ნუროფენი ბავშვის ფორთოხლის გემოთი 100მგ/5მლ ორალური სუსპენზია 200მლ ფლაკონი #1</a>
+</td>
+<td><a target="_blank" href="./mis_generiki.mis?4EE68ED70E9E6CBB078403F849E5BB8E=g">იბუპროფენი</a></td><td>დიდი ბრიტანეთი</td>
+<td>
+<a target="_blank" href="./mis_firma.mis?EBCA646BEC9AF90E8E1FFCD55A951B85=f">რექით ბენქაიზერ</a>
+</td>
+<td><h5>#რ-045677 2026-06-11 - 2031-06-11</h5></td><td><h5>III ჯგუფი, გაიცემა რეცეპტის გარეშე</h5></td>
+</tr>
+<tr>
+<td><input type="checkbox" name="AC5580848A3FC7CA43102F8C2538F501" onclick="gaferadeba(this)" >
+</td>
+<td>
+<a target="_blank" href="./mis_medikamenti.mis?AC5580848A3FC7CA43102F8C2538F501=m">ნუროფენი ბავშვის ფორთოხლის გემოთი 100მგ/5მლ სუსპენზია 100მლ ფლაკონი #1</a>
+</td>
+<td><a target="_blank" href="./mis_generiki.mis?4EE68ED70E9E6CBB078403F849E5BB8E=g">იბუპროფენი</a></td><td>დიდი ბრიტანეთი</td>
+<td>
+<a target="_blank" href="./mis_firma.mis?AC5580848A3FC7CA43102F8C2538F501=f">რექით ბენქაიზერ</a>
+</td>
+<td><h5></h5></td><td><h5>III ჯგუფი, გაიცემა რეცეპტის გარეშე</h5></td>
+</tr>
+<tr>
+<td><input type="checkbox" name="4C8DF990144E037BCDC923DAB185AF1A" onclick="gaferadeba(this)" >
+</td>
+<td>
+<a target="_blank" href="./mis_medikamenti.mis?4C8DF990144E037BCDC923DAB185AF1A=m">ნუროფენ პლუსი 200მგ+12.8მგ აბი - #10</a>
+</td>
+<td><a target="_blank" href="./mis_generiki.mis?8CA7C2369E62BF230C8AD559BAD92687=g">იბუპროფენი + კოდეინი</a></td><td>დიდი ბრიტანეთი</td>
+<td>
+<a target="_blank" href="./mis_firma.mis?4C8DF990144E037BCDC923DAB185AF1A=f">ბუთს ჰელსქეარ ინტერნაციონალი</a>
+</td>
+<td><h5></h5></td><td><h5></h5></td>
+</tr>
+<tr>
+<td><input type="checkbox" name="E091C7E4A10F65DD268559F39A3CD530" onclick="gaferadeba(this)" >
+</td>
+<td>
+<a target="_blank" href="./mis_medikamenti.mis?E091C7E4A10F65DD268559F39A3CD530=m">ნუროფენ პლუსი 200მგ შემოგარსული აბი - #12</a>
+</td>
+<td><a target="_blank" href="./mis_generiki.mis?8CA7C2369E62BF230C8AD559BAD92687=g">იბუპროფენი + კოდეინი</a></td><td>დიდი ბრიტანეთი</td>
+<td>
+<a target="_blank" href="./mis_firma.mis?E091C7E4A10F65DD268559F39A3CD530=f">რექით ბენქაიზერ</a>
+</td>
+<td><h5></h5></td><td><h5>III ჯგუფი, გაიცემა რეცეპტის გარეშე</h5></td>
+</tr>
+<tr>
+<td><input type="checkbox" name="D80A1224E1FA5AF99FA14DDE5A9EDAD1" onclick="gaferadeba(this)" >
+</td>
+<td>
+<a target="_blank" href="./mis_medikamenti.mis?D80A1224E1FA5AF99FA14DDE5A9EDAD1=m">ნუროფენ პრო 20მგ/მლ სუსპენზია 150მლ ფლაკონი #1</a>
+</td>
+<td><a target="_blank" href="./mis_generiki.mis?4EE68ED70E9E6CBB078403F849E5BB8E=g">იბუპროფენი</a></td><td>დიდი ბრიტანეთი</td>
+<td>
+<a target="_blank" href="./mis_firma.mis?D80A1224E1FA5AF99FA14DDE5A9EDAD1=f">რექით ბენქაიზერ</a>
+</td>
+<td><h5></h5></td><td><h5></h5></td>
+</tr>
+<tr>
+<td><input type="checkbox" name="1F6C46BA000FEC528286580726ED1768" onclick="gaferadeba(this)" >
+</td>
+<td>
+<a target="_blank" href="./mis_medikamenti.mis?1F6C46BA000FEC528286580726ED1768=m">ნუროფენ სტოპქოლდი - შემოგარსული აბი - #12</a>
+</td>
+<td><a target="_blank" href="./mis_generiki.mis?EEAD17077894A0640959EC9511585F87=g">იბუპროფენი + ფსევდოეფედრინი</a></td><td>დიდი ბრიტანეთი</td>
+<td>
+<a target="_blank" href="./mis_firma.mis?1F6C46BA000FEC528286580726ED1768=f">ბუთს ჰელსქეარ ინტერნაციონალი</a>
+</td>
+<td><h5></h5></td><td><h5></h5></td>
+</tr>
+<tr>
+<td><input type="checkbox" name="2818BD9B38A7634068F7D4DB8F2175ED" onclick="gaferadeba(this)" >
+</td>
+<td>
+<a target="_blank" href="./mis_medikamenti.mis?2818BD9B38A7634068F7D4DB8F2175ED=m">ნუროფენ ფორტე 400მგ შემოგარსული აბი - #12</a>
+</td>
+<td><a target="_blank" href="./mis_generiki.mis?4EE68ED70E9E6CBB078403F849E5BB8E=g">იბუპროფენი</a></td><td>დიდი ბრიტანეთი</td>
+<td>
+<a target="_blank" href="./mis_firma.mis?2818BD9B38A7634068F7D4DB8F2175ED=f">რექით ბენქაიზერ</a>
+</td>
+<td><h5>#რ-038086 2023-11-05 - 2028-11-05</h5></td><td><h5>III ჯგუფი, გაიცემა რეცეპტის გარეშე</h5></td>
+</tr>
+<tr>
+<td><input type="checkbox" name="474466D90EB2E1389F858BDE7A997A5D" onclick="gaferadeba(this)" >
+</td>
+<td>
+<a target="_blank" href="./mis_medikamenti.mis?474466D90EB2E1389F858BDE7A997A5D=m">ნუროფენ ფორტე 400მგ შემოგარსული აბი - #48</a>
+</td>
+<td><a target="_blank" href="./mis_generiki.mis?4EE68ED70E9E6CBB078403F849E5BB8E=g">იბუპროფენი</a></td><td>დიდი ბრიტანეთი</td>
+<td>
+<a target="_blank" href="./mis_firma.mis?474466D90EB2E1389F858BDE7A997A5D=f">რექით ბენქაიზერ</a>
+</td>
+<td><h5></h5></td><td><h5>III ჯგუფი, გაიცემა რეცეპტის გარეშე</h5></td>
+</tr>
+</tbody>
+</table>
+<div id="pageNavPosition" style="padding-top: 20px;padding-bottom: 20px; float:left; margin-left: 35%; margin-right:auto;" align="center"></div>
+<script type="text/javascript"><!--
+var pager = new Pager('table_medikamentebi', 20);
+pager.init();
+pager.showPageNav('pager', 'pageNavPosition');
+pager.showPage(1);
+</script>
+</form>
+<br><br>
+<div style="display: table; width: 100%;" >
+<div style="display: table-cell ; width: 100%; background-color: #737373; height: 260px;border-top-style: solid; border-top-color: #ff8533; border-top-width: 3px; ">
+<br><br><br>
+<div style="display: table-cell ; ">
+<div style="display: table-cell ; padding: 0px 15px 0px 50px">
+<div display = "inline-block" align="right"><a target="_blank" href="http://www.Facebook.com/www.mis.ge"><img class="left_down_img" src="./images/Facebook-icon.png" alt="facebook"></a></div>
+</div>
+<div style="display: table-cell ;">
+<div id="fb-root"></div>
+<script>(function(d, s, id) {var js, fjs = d.getElementsByTagName(s)[0];if (d.getElementById(id)) return;js = d.createElement(s); js.id = id;js.src = 'https://connect.facebook.net/en_US/sdk.js#xfbml=1&version=v3.2';fjs.parentNode.insertBefore(js, fjs);}(document, 'script', 'facebook-jssdk'));</script>
+<div class="fb-like" data-href="https://www.facebook.com/www.mis.ge/" data-layout="button" data-action="like" data-size="small" data-show-faces="true" data-share="true"></div>
+</div>
+<div style="display: table-cell; padding-left:10px;">
+<div  id="top-ge-counter-container" data-site-id="110600"></div><script async src="//counter.top.ge/counter.js"></script>
+</div>
+</div>
+<div align="right" style="margin-right: 10%; color: #0cf6e2; font-style: normal; font-weight: bold; font-size: 12px; padding: 15px 0px 5px 0px"  display="inline-block">© შპს “საინფორმაციო-სამედიცინო სამსახური”</div>
+<div display = "inline-block" align="right" style="margin-right: 10%;color: #ffffff;font-style: normal; font-weight: bold;font-size: 12px;padding: 0px 0px 5px 0px">თბილისი, რ. ჩხეიძის 6</div>
+<div align="right" style="margin-right: 10%; font-style: normal; font-weight: bold;  font-size: 12px;padding: 0px 0px 5px 0px"  display="inline-block">+(032) 2 252233</div>
+<div align="right" style="margin-right: 10%; color: #ff8533; font-style: normal; font-weight: bold; font-size: 12px;padding: 0px 0px 5px 0px"  display="inline-block">infomis04@gmail.com</div>
+<div display = "inline-block" align="right" style="margin-right: 10%;color: #ffffff;font-style: normal; font-weight: bold;font-size: 12px;">info@mis.ge</div>
+<br>
+</div>
+</div>
+</body>
+<div display = "inline-block" align="left"><small>მრიცხველი 26984398</small></div>
+<p><small> Page generation time: 0.	100478978 sec.</p></small>
+</html>
