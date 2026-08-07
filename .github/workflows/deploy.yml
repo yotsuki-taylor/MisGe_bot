@@ -102,6 +102,31 @@ jobs:
           chmod 600 .env.next
           mv .env.next .env
 
+          test -r "$APP_DIR/.env"
+          .venv/bin/python - <<'PY'
+          import os
+          from pathlib import Path
+
+          from misbot.config import Config, ENV_FILE
+
+          expected_env = Path(os.environ["APP_DIR"]) / ".env"
+          if ENV_FILE.resolve() != expected_env.resolve():
+              raise SystemExit(f"Application expects {ENV_FILE}, not {expected_env}")
+
+          config = Config.from_env()
+          if not config.token:
+              raise SystemExit("MISGE_BOT_TOKEN was not loaded from the production .env")
+
+          print(f"Production configuration loaded from {ENV_FILE}")
+          PY
+
+          service_definition="$(sudo systemctl cat "$SERVICE_NAME")"
+          if ! grep -Fq "$APP_DIR" <<<"$service_definition"; then
+            echo "The $SERVICE_NAME service does not reference $APP_DIR" >&2
+            echo "Update its WorkingDirectory and ExecStart before deploying." >&2
+            exit 1
+          fi
+
           sudo systemctl restart "$SERVICE_NAME"
           sleep 3
           if ! sudo systemctl is-active --quiet "$SERVICE_NAME"; then
