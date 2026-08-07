@@ -1,0 +1,111 @@
+name: Test and deploy
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: production-deployment
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Run tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Install dependencies
+        run: python -m pip install --requirement requirements-dev.txt
+
+      - name: Run test suite
+        run: python -m pytest
+
+  deploy:
+    name: Deploy to VPS
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+
+    env:
+      VPS_HOST: 213.170.133.146
+      VPS_PORT: "22"
+      VPS_USER: deployer
+      APP_DIR: /var/www/MisGe_bot
+      SERVICE_NAME: misge-bot
+
+    steps:
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.VPS_SSH_KNOWN_HOSTS }}
+        run: |
+          test -n "$SSH_PRIVATE_KEY"
+          test -n "$SSH_KNOWN_HOSTS"
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Upload production environment
+        env:
+          MISGE_BOT_TOKEN: ${{ secrets.MISGE_BOT_TOKEN }}
+        run: |
+          test -n "$MISGE_BOT_TOKEN"
+          umask 077
+          printf 'MISGE_BOT_TOKEN=%s\nMISGE_LOG_LEVEL=INFO\n' "$MISGE_BOT_TOKEN" > "$RUNNER_TEMP/misge.env"
+          scp -q \
+            -i ~/.ssh/deploy_key \
+            -P "$VPS_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            "$RUNNER_TEMP/misge.env" \
+            "$VPS_USER@$VPS_HOST:$APP_DIR/.env.next"
+
+      - name: Update application and restart service
+        run: |
+          ssh \
+            -i ~/.ssh/deploy_key \
+            -p "$VPS_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            "$VPS_USER@$VPS_HOST" \
+            "APP_DIR='$APP_DIR' SERVICE_NAME='$SERVICE_NAME' bash -se" <<'REMOTE'
+          set -Eeuo pipefail
+
+          cd "$APP_DIR"
+          git fetch origin main
+          git checkout main
+          git merge --ff-only origin/main
+
+          python3 -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install --requirement requirements.txt
+
+          chmod 600 .env.next
+          mv .env.next .env
+
+          sudo systemctl restart "$SERVICE_NAME"
+          sleep 3
+          if ! sudo systemctl is-active --quiet "$SERVICE_NAME"; then
+            sudo systemctl status --no-pager "$SERVICE_NAME"
+            exit 1
+          fi
+          REMOTE
