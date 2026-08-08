@@ -7,12 +7,12 @@
 from __future__ import annotations
 
 from html import escape
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from .forms import translate_company, translate_country, translate_medicine
 from .landmarks import translate_landmark
 from .models import Medicine, Pharmacy, Stock
-from .translit import ka_to_ru
+from .translit import ka_to_latin, ka_to_ru
 
 SOURCE_URL = "http://www.mis.ge"
 SOURCE_LINE = f'Источник: <a href="{SOURCE_URL}">mis.ge</a>'
@@ -184,12 +184,8 @@ def _stock_line(stock: Stock, pharmacy: Optional[Pharmacy] = None) -> str:
     )
     stale = " ⚠️" if stock.is_stale else ""
 
-    # Вывеска — как она написана на самой аптеке: её ищут глазами на улице,
-    # а транслит только мешает сличить. «აფთიაქი 334» — не вывеска, а номер,
-    # его переводим.
-    name = escape(pharmacy.display_name) if pharmacy and pharmacy.display_name else ""
-    if not name:
-        name = escape(ka_to_ru(stock.pharmacy_name))
+    signboard = pharmacy.display_name if pharmacy and pharmacy.display_name else ""
+    name = escape(pharmacy_label(signboard or stock.pharmacy_name))
 
     lines = [f"{price} — {name}{clock}", _where_line(stock, pharmacy)]
 
@@ -199,6 +195,24 @@ def _stock_line(stock: Stock, pharmacy: Optional[Pharmacy] = None) -> str:
 
     lines.append(f"<i>{updated}{stale}</i>")
     return "\n".join(lines)
+
+
+def pharmacy_label(name: str, romanise: Callable[[str], str] = ka_to_latin) -> str:
+    """Название аптеки: сначала латиницей, следом в скобках — как на вывеске.
+
+    Латиница нужна, чтобы название можно было прочесть и произнести вслух;
+    оригинал — чтобы сличить с тем, что написано на самой аптеке. Если название
+    и так латиницей («PSP»), скобки не нужны — они повторили бы то же самое.
+
+    Возвращает обычный текст: экранирование — забота вызывающего.
+    """
+    name = (name or "").strip()
+    if not name:
+        return ""
+    romanised = romanise(name).strip()
+    if not romanised or romanised.casefold() == name.casefold():
+        return name
+    return f"{romanised} ({name})"
 
 
 def _where_line(stock: Stock, pharmacy: Optional[Pharmacy]) -> str:

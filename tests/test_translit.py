@@ -10,6 +10,7 @@ from misbot.translit import (
     is_cyrillic,
     is_georgian,
     is_latin,
+    ka_to_latin,
     ka_to_ru,
     ru_to_latin,
     ru_to_latin_candidates,
@@ -71,6 +72,35 @@ class TestKaToRu:
 
     def test_empty(self):
         assert ka_to_ru("") == ""
+
+
+class TestKaToLatin:
+    @pytest.mark.parametrize(
+        "georgian, latin",
+        [
+            ("გეა", "Gea"),
+            ("ნუროფენი", "Nuropeni"),
+            ("ბათუმი", "Batumi"),
+            ("ჯანმრთელობა", "Janmrteloba"),
+            ("ღვინო", "Ghvino"),
+        ],
+    )
+    def test_letter_by_letter(self, georgian, latin):
+        assert ka_to_latin(georgian) == latin
+
+    def test_known_names_come_from_the_dictionary(self):
+        # По системе ფ — это p, вышло бы «Parmagidi».
+        assert ka_to_latin("ფარმაგიდი") == "Pharmagidi"
+        assert ka_to_latin("პსპ") == "PSP"
+
+    def test_every_word_is_capitalised(self):
+        assert ka_to_latin("ფარმაგიდი გეა") == "Pharmagidi Gea"
+
+    def test_digits_and_latin_are_kept(self):
+        assert ka_to_latin("აფთიაქი 334 PSP") == "Aptiaqi 334 PSP"
+
+    def test_empty(self):
+        assert ka_to_latin("") == ""
 
 
 class TestRuToLatin:

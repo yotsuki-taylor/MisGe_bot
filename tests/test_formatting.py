@@ -193,19 +193,18 @@ class TestAddresses:
         assert "сб/9.00-15.00" in text
         assert "вс/выходной" in text
 
-    def test_brand_is_shown_as_written_on_the_sign(self):
+    def test_brand_is_shown_in_latin_with_the_sign_in_brackets(self):
         text = fmt.stocks_message([stock()], "Тбилиси", {334: self.card()})
-        assert "ფარმაგიდი გეა" in text
+        assert "Pharmagidi Gea (ფარმაგიდი გეა)" in text
         assert "фармагиди" not in text
 
     def test_without_a_brand_the_legal_name_is_used(self):
         text = fmt.stocks_message([stock()], "Тбилиси", {334: self.card(brand="")})
         assert "გეა" in text
 
-    def test_numbered_pharmacy_label_is_still_translated(self):
-        # «აფთიაქი 334» — не вывеска, а номер: его читать по-русски удобнее.
+    def test_numbered_pharmacy_label_is_romanised_too(self):
         text = fmt.stocks_message([stock()], "Тбилиси", {})
-        assert "аптека 334" in text
+        assert "Aptiaqi 334 (აფთიაქი 334)" in text
 
     def test_falls_back_to_the_district_when_the_card_is_missing(self):
         text = fmt.stocks_message([stock()], "Тбилиси", {})
@@ -223,6 +222,24 @@ class TestAddresses:
     def test_fits_the_telegram_limit_with_addresses(self, stocks):
         cards = {stock_.pharmacy_id: self.card(id=stock_.pharmacy_id) for stock_ in stocks}
         assert len(fmt.stocks_message(stocks, "Тбилиси", cards)) < TELEGRAM_MESSAGE_LIMIT
+
+
+class TestPharmacyLabel:
+    def test_latin_first_original_in_brackets(self):
+        assert fmt.pharmacy_label("ავერსი") == "Aversi (ავერსი)"
+
+    def test_latin_names_are_left_alone(self):
+        # Скобки повторили бы ровно то же самое.
+        assert fmt.pharmacy_label("PSP") == "PSP"
+
+    def test_digits_survive(self):
+        assert fmt.pharmacy_label("აფთიაქი 334") == "Aptiaqi 334 (აფთიაქი 334)"
+
+    def test_empty_name(self):
+        assert fmt.pharmacy_label("") == ""
+
+    def test_romanisation_can_be_switched_off(self):
+        assert fmt.pharmacy_label("ავერსი", lambda text: text) == "ავერსი"
 
 
 class TestShownStocks:

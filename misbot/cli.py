@@ -18,7 +18,7 @@ from typing import List, Optional
 
 from .cache import PharmacyCache
 from .config import DEFAULT_DB
-from .formatting import shown_stocks, strip_area
+from .formatting import pharmacy_label, shown_stocks, strip_area
 from .forms import (
     translate_company,
     translate_country,
@@ -32,7 +32,7 @@ from .models import Medicine, Stock
 from .pharmacies import resolve
 from .parser import ParseError, QueryTooShort, parse_locations, parse_pharmacies
 from .search import find_medicines
-from .translit import ka_to_ru
+from .translit import ka_to_latin, ka_to_ru
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -111,7 +111,8 @@ async def run(args: argparse.Namespace) -> int:
                     max_fetches=args.limit,
                 )
 
-        _print_stocks(stocks, args.limit, show, cards)
+        romanise = (lambda text: text) if args.georgian else ka_to_latin
+        _print_stocks(stocks, args.limit, show, cards, romanise)
         return 0
 
 
@@ -142,7 +143,7 @@ def _print_medicines(medicines: List[Medicine], limit: int, show) -> None:
         print(f"\n… ещё {len(medicines) - limit}, показать больше: --limit")
 
 
-def _print_stocks(stocks: List[Stock], limit: int, show, cards=None) -> None:
+def _print_stocks(stocks: List[Stock], limit: int, show, cards=None, romanise=ka_to_latin) -> None:
     cards = cards or {}
 
     print(f"\nАПТЕК С ЭТИМ ПРЕПАРАТОМ: {len(stocks)}\n")
@@ -155,9 +156,10 @@ def _print_stocks(stocks: List[Stock], limit: int, show, cards=None) -> None:
         updated = stock.updated.isoformat() if stock.updated else "дата неизвестна"
         stale = "  ⚠ давно не обновляли" if stock.is_stale else ""
         card = cards.get(stock.pharmacy_id)
-        # Вывеску и ориентир не транслитерируем: их сличают с тем, что написано
-        # на улице, и показывают прохожим.
-        name = card.display_name if card and card.display_name else show(stock.pharmacy_name)
+        # Вывеска: латиницей, а в скобках — как написано на самой аптеке.
+        # Ориентир ниже оставляем как есть: его показывают прохожим.
+        signboard = card.display_name if card and card.display_name else stock.pharmacy_name
+        name = pharmacy_label(signboard, romanise)
 
         print(f"{price:>18}  {name}{clock}")
         if card and card.address:
