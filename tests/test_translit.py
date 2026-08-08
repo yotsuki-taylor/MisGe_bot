@@ -93,6 +93,10 @@ class TestKaToLatin:
         assert ka_to_latin("ფარმაგიდი") == "Pharmagidi"
         assert ka_to_latin("პსპ") == "PSP"
 
+    def test_legal_form_is_spelled_out(self):
+        # «Shps Gea» в начале строки читается как шум.
+        assert ka_to_latin('შპს "გეა"') == 'LLC "Gea"'
+
     def test_every_word_is_capitalised(self):
         assert ka_to_latin("ფარმაგიდი გეა") == "Pharmagidi Gea"
 
