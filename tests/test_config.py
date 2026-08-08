@@ -2,12 +2,20 @@
 
 import pytest
 
-from misbot.config import CITY_VAR, CONTACT_VAR, TOKEN_VAR, Config, ConfigError, load_env_file
+from misbot.config import (
+    ADMIN_VAR,
+    CITY_VAR,
+    CONTACT_VAR,
+    TOKEN_VAR,
+    Config,
+    ConfigError,
+    load_env_file,
+)
 
 
 @pytest.fixture(autouse=True)
 def clean_env(monkeypatch, tmp_path):
-    for var in (TOKEN_VAR, CONTACT_VAR, CITY_VAR):
+    for var in (TOKEN_VAR, CONTACT_VAR, CITY_VAR, ADMIN_VAR):
         monkeypatch.delenv(var, raising=False)
     # Чтобы тест не подхватил настоящий .env разработчика.
     monkeypatch.setattr("misbot.config.ENV_FILE", tmp_path / "absent.env")
@@ -31,6 +39,21 @@ class TestFromEnv:
         monkeypatch.setenv(TOKEN_VAR, "123:abc")
         monkeypatch.setenv(CITY_VAR, "Тбилиси")
         assert Config.from_env().default_city == 0
+
+    def test_reads_the_admin_id(self, monkeypatch):
+        monkeypatch.setenv(TOKEN_VAR, "123:abc")
+        monkeypatch.setenv(ADMIN_VAR, "42")
+        assert Config.from_env().admin_id == 42
+
+    def test_without_an_admin_id_stats_are_off(self, monkeypatch):
+        # 0 — команда /stats молчит для всех.
+        monkeypatch.setenv(TOKEN_VAR, "123:abc")
+        assert Config.from_env().admin_id == 0
+
+    def test_broken_admin_id_turns_stats_off(self, monkeypatch):
+        monkeypatch.setenv(TOKEN_VAR, "123:abc")
+        monkeypatch.setenv(ADMIN_VAR, "@masha")
+        assert Config.from_env().admin_id == 0
 
 
 class TestEnvFile:

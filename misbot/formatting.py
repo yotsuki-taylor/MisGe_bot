@@ -12,6 +12,7 @@ from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 from .forms import translate_company, translate_country, translate_medicine
 from .landmarks import translate_landmark
 from .models import Medicine, Pharmacy, Stock
+from .stats import Period
 from .translit import ka_to_latin, ka_to_ru
 
 SOURCE_URL = "http://www.mis.ge"
@@ -57,12 +58,37 @@ def about_text(contact: str) -> str:
         "по-разному: у части данные свежие, у части им больше года. "
         "Дату обновления я показываю у каждой строки — смотрите на неё "
         "и лучше позвоните в аптеку перед поездкой.\n\n"
-        "<b>Приватность.</b> Тексты запросов не сохраняются. Учтите, что сайт-источник "
+        "<b>Приватность.</b> Тексты запросов не сохраняются. Бот считает обезличенную "
+        "статистику — сколько было запросов и сколько из них нашлось; кто именно "
+        "спрашивал, из неё не видно: telegram id не хранится, вместо него хеш. "
+        "Учтите, что сайт-источник "
         "работает без шифрования, так что название препарата уходит к нему "
         "открытым текстом.\n\n"
         f"Связь: {escape(contact)}\n\n"
         f"<i>{DISCLAIMER}</i>"
     )
+
+
+def stats_text(periods: Sequence[Period]) -> str:
+    """Счётчики для владельца бота. Команда /stats, в /help её нет."""
+    lines = ["<b>Статистика</b>", ""]
+    for period in periods:
+        lines.append(f"<b>{escape(period.label)}</b>")
+        lines.append(f"    запросов: {period.searches}")
+        if period.hit_rate is not None:
+            lines.append(
+                f"    нашлось: {period.found} ({period.hit_rate:.0%}), "
+                f"пусто: {period.nothing}"
+            )
+        lines.append(f"    смотрели аптеки: {period.stocks}")
+        lines.append(f"    людей: {period.people}")
+        lines.append("")
+
+    lines.append(
+        "<i>Считаются только события. Ни текстов запросов, ни telegram id "
+        "в базе нет — пользователи различаются по хешу с солью.</i>"
+    )
+    return "\n".join(lines)
 
 
 def searching(query: str) -> str:

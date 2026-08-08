@@ -67,10 +67,18 @@ jobs:
       - name: Upload production environment
         env:
           MISGE_BOT_TOKEN: ${{ secrets.MISGE_BOT_TOKEN }}
+          MISGE_ADMIN_ID: ${{ secrets.MISGE_ADMIN_ID }}
         run: |
           test -n "$MISGE_BOT_TOKEN"
           umask 077
-          printf 'MISGE_BOT_TOKEN=%s\nMISGE_LOG_LEVEL=INFO\n' "$MISGE_BOT_TOKEN" > "$RUNNER_TEMP/misge.env"
+          {
+            printf 'MISGE_BOT_TOKEN=%s\n' "$MISGE_BOT_TOKEN"
+            printf 'MISGE_LOG_LEVEL=INFO\n'
+            # Секрета может не быть — тогда /stats просто молчит, деплою всё равно.
+            if [ -n "$MISGE_ADMIN_ID" ]; then
+              printf 'MISGE_ADMIN_ID=%s\n' "$MISGE_ADMIN_ID"
+            fi
+          } > "$RUNNER_TEMP/misge.env"
           scp -q \
             -i ~/.ssh/deploy_key \
             -P "$VPS_PORT" \

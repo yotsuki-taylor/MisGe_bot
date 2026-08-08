@@ -17,6 +17,7 @@ CITY_VAR = "MISGE_DEFAULT_CITY"
 LOG_VAR = "MISGE_LOG_LEVEL"
 DB_VAR = "MISGE_DB"
 LOG_FILE_VAR = "MISGE_LOG_FILE"
+ADMIN_VAR = "MISGE_ADMIN_ID"
 
 DEFAULT_DB = ENV_FILE.parent / "misge.sqlite3"
 DEFAULT_LOG_FILE = ENV_FILE.parent / "misge.log"
@@ -37,7 +38,10 @@ class Config:
     """На INFO пользовательские запросы в лог не попадают, см. privacy в README."""
 
     database: Path = DEFAULT_DB
-    """Кеш карточек аптек. Запросов пользователей здесь нет и не будет."""
+    """Кеш карточек аптек и счётчики. Текстов запросов здесь нет и не будет."""
+
+    admin_id: int = 0
+    """Кому отвечает /stats. 0 — команда молчит для всех, включая владельца."""
 
     log_file: Optional[Path] = DEFAULT_LOG_FILE
     """Под автозапуском консоли нет, и без файла лога непонятно, что случилось."""
@@ -60,6 +64,7 @@ class Config:
             log_level=os.environ.get(LOG_VAR, "INFO").strip().upper() or "INFO",
             database=Path(os.environ.get(DB_VAR, "").strip() or DEFAULT_DB),
             log_file=_log_file(os.environ.get(LOG_FILE_VAR)),
+            admin_id=_int(os.environ.get(ADMIN_VAR), default=0),
         )
 
 

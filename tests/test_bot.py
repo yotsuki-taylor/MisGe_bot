@@ -27,12 +27,14 @@ from misbot.bot import (
     handle_medicine_chosen,
     handle_page,
     handle_query,
+    handle_stats,
     medicines_keyboard,
 )
 from misbot.config import Config
 from misbot.locations import EVERYWHERE, FALLBACK_CITIES, CityDirectory
 from misbot.mis_client import MisUnavailable
 from misbot.parser import parse_search
+from misbot.stats import Stats
 
 FIXTURES = Path(__file__).parent / "fixtures"
 FOUND = (FIXTURES / "search_nurofen.html").read_text(encoding="utf-8")
@@ -341,3 +343,67 @@ class TestKeyboards:
         keyboard = cities_keyboard(cities)
         buttons = [b for row in keyboard.inline_keyboard for b in row]
         assert len(buttons) == len(FALLBACK_CITIES) + 1
+
+
+class TestStatsCommand:
+    ADMIN = 42
+
+    @pytest.fixture
+    async def stats(self, tmp_path):
+        store = await Stats(tmp_path / "stats.sqlite3").open()
+        yield store
+        await store.close()
+
+    @pytest.fixture
+    def admin_config(self) -> Config:
+        return Config(token="test", default_city=1, admin_id=self.ADMIN)
+
+    async def test_the_owner_gets_the_numbers(self, admin_config, stats):
+        message = FakeMessage("/stats", user_id=self.ADMIN)
+        await handle_stats(message, admin_config, stats)
+        assert message.replies and "Статистика" in message.replies[0].text
+
+    async def test_everyone_else_gets_silence(self, admin_config, stats):
+        # Не «нельзя», а вообще ничего: иначе видно, что команда существует.
+        message = FakeMessage("/stats", user_id=self.ADMIN + 1)
+        await handle_stats(message, admin_config, stats)
+        assert message.replies == []
+
+    async def test_without_an_admin_id_the_command_is_off(self, config, stats):
+        message = FakeMessage("/stats", user_id=self.ADMIN)
+        await handle_stats(message, config, stats)
+        assert message.replies == []
+
+    async def test_searches_are_counted(self, state, cities, admin_config, stats):
+        await handle_query(FakeMessage("нурофен"), state, FakeClient(), cities, admin_config, stats)
+        today, _week, _total = await stats.report()
+        assert (today.searches, today.found, today.people) == (1, 1, 1)
+
+    async def test_empty_results_are_counted_apart(self, state, cities, admin_config, stats):
+        message = FakeMessage("абракадабра")
+        client = FakeClient(search_html=EMPTY)
+        await handle_query(message, state, client, cities, admin_config, stats)
+        today, _week, _total = await stats.report()
+        assert (today.searches, today.found, today.nothing) == (1, 0, 1)
+
+    async def test_a_dead_site_is_counted_apart(self, state, cities, admin_config, stats):
+        client = FakeClient()
+        client.fail_with["search"] = MisUnavailable("нет связи")
+        await handle_query(FakeMessage("нурофен"), state, client, cities, admin_config, stats)
+        today, _week, _total = await stats.report()
+        assert (today.searches, today.found, today.nothing) == (1, 0, 0)
+
+    async def test_viewing_pharmacies_is_counted(self, state, cities, admin_config, stats):
+        medicines = parse_search(FOUND)
+        await _remember(state, medicines)
+        callback = FakeCallback(f"{MEDICINE_PREFIX}:{medicines[0].hash}")
+        await handle_medicine_chosen(
+            callback, state, FakeClient(), cities, admin_config, None, stats
+        )
+        today, _week, _total = await stats.report()
+        assert today.stocks == 1
+
+    async def test_the_bot_works_without_stats_at_all(self, state, cities, config):
+        message = FakeMessage("нурофен")
+        await handle_query(message, state, FakeClient(), cities, config)
+        assert "Нашлось" in message.replies[0].text
