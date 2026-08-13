@@ -40,7 +40,10 @@ jobs:
     name: Deploy to VPS
     needs: test
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # Запас на медленный PyPI. Это страховка, а не рабочий лимит: каждая
+    # опасная команда ниже обёрнута в собственный timeout и падает раньше,
+    # объясняя, что именно не дождалось.
+    timeout-minutes: 20
     environment: production
 
     env:
@@ -49,6 +52,14 @@ jobs:
       VPS_USER: deployer
       APP_DIR: /var/www/MisGe_bot
       SERVICE_NAME: misge-bot
+      # ServerAliveInterval нужен, чтобы повисшее соединение рвалось само,
+      # а не висело до конца отведённого джобе времени.
+      SSH_OPTS: >-
+        -o BatchMode=yes
+        -o IdentitiesOnly=yes
+        -o ConnectTimeout=15
+        -o ServerAliveInterval=15
+        -o ServerAliveCountMax=4
 
     steps:
       - name: Configure SSH
@@ -82,8 +93,7 @@ jobs:
           scp -q \
             -i ~/.ssh/deploy_key \
             -P "$VPS_PORT" \
-            -o BatchMode=yes \
-            -o IdentitiesOnly=yes \
+            $SSH_OPTS \
             "$RUNNER_TEMP/misge.env" \
             "$VPS_USER@$VPS_HOST:$APP_DIR/.env.next"
 
@@ -92,25 +102,57 @@ jobs:
           ssh \
             -i ~/.ssh/deploy_key \
             -p "$VPS_PORT" \
-            -o BatchMode=yes \
-            -o IdentitiesOnly=yes \
+            $SSH_OPTS \
             "$VPS_USER@$VPS_HOST" \
             "APP_DIR='$APP_DIR' SERVICE_NAME='$SERVICE_NAME' bash -se" <<'REMOTE'
           set -Eeuo pipefail
 
+          # Каждый шаг называет себя в логе. Без этого зависший деплой выглядит
+          # как молчание, и непонятно, на чём именно он встал.
+          step() { printf '\n=== %s: %s\n' "$(date -u +%H:%M:%S)" "$1"; }
+
+          # Названная команда с потолком по времени: упереться в него и сказать,
+          # что не дождались, полезнее, чем висеть до конца отведённого времени.
+          run() {
+            local seconds="$1" what="$2"; shift 2
+            step "$what"
+            # Код берём через «|| code=$?»: внутри «if ! cmd» переменная $?
+            # равна нулю, и вышло бы, что упавший шаг завершается успешно.
+            local code=0
+            timeout --signal=TERM --kill-after=10 "$seconds" "$@" || code=$?
+            if [ "$code" -ne 0 ]; then
+              if [ "$code" -eq 124 ]; then
+                echo "не дождались: «$what» не уложилось в ${seconds}с" >&2
+              fi
+              exit "$code"
+            fi
+          }
+
           cd "$APP_DIR"
-          git fetch origin main
-          git checkout main
-          git merge --ff-only origin/main
 
-          python3 -m venv .venv
-          .venv/bin/python -m pip install --upgrade pip
-          .venv/bin/python -m pip install --requirement requirements.txt
+          # Без этого git при неожиданном запросе доступа ждёт ввода вечно.
+          export GIT_TERMINAL_PROMPT=0
 
+          run 120 "забираю свежий код"   git fetch origin main
+          run 30  "переключаюсь на main" git checkout main
+          run 30  "перематываю на origin/main" git merge --ff-only origin/main
+          git --no-pager log -1 --oneline
+
+          run 120 "готовлю venv" python3 -m venv .venv
+          # --timeout и --retries: при недоступном PyPI pip иначе уходит в
+          # долгие повторы и съедает всё время деплоя.
+          run 420 "ставлю зависимости" .venv/bin/python -m pip install \
+            --requirement requirements.txt \
+            --upgrade-strategy only-if-needed \
+            --disable-pip-version-check --no-input \
+            --timeout 20 --retries 2
+
+          step "подставляю окружение"
           chmod 600 .env.next
           mv .env.next .env
 
           test -r "$APP_DIR/.env"
+          step "проверяю, что конфигурация читается"
           .venv/bin/python - <<'PY'
           import os
           from pathlib import Path
@@ -128,17 +170,30 @@ jobs:
           print(f"Production configuration loaded from {ENV_FILE}")
           PY
 
-          service_definition="$(sudo systemctl cat "$SERVICE_NAME")"
+          step "сверяю юнит с каталогом приложения"
+          service_definition="$(timeout 30 sudo systemctl cat "$SERVICE_NAME")"
           if ! grep -Fq "$APP_DIR" <<<"$service_definition"; then
             echo "The $SERVICE_NAME service does not reference $APP_DIR" >&2
             echo "Update its WorkingDirectory and ExecStart before deploying." >&2
             exit 1
           fi
 
-          sudo systemctl restart "$SERVICE_NAME"
-          sleep 3
-          if ! sudo systemctl is-active --quiet "$SERVICE_NAME"; then
-            sudo systemctl status --no-pager "$SERVICE_NAME"
+          # restart ждёт, пока юнит остановится и поднимется. Если бот не
+          # уходит по SIGTERM, ждать можно до TimeoutStopSec — поэтому свой
+          # потолок и журнал при неудаче.
+          step "перезапускаю сервис"
+          if ! timeout 180 sudo systemctl restart "$SERVICE_NAME"; then
+            echo "перезапуск не завершился за 180с" >&2
+            sudo journalctl -u "$SERVICE_NAME" -n 50 --no-pager || true
             exit 1
           fi
+
+          sleep 3
+          step "проверяю, что сервис работает"
+          if ! sudo systemctl is-active --quiet "$SERVICE_NAME"; then
+            sudo systemctl status --no-pager "$SERVICE_NAME" || true
+            sudo journalctl -u "$SERVICE_NAME" -n 50 --no-pager || true
+            exit 1
+          fi
+          step "готово"
           REMOTE
