@@ -37,7 +37,7 @@ from .config import Config, ConfigError
 from .locations import EVERYWHERE, CityDirectory
 from .mis_client import MisClient, MisUnavailable
 from .models import Medicine
-from .parser import ParseError, QueryTooShort
+from .parser import ParseError, QueryTooShort, parse_medicine_card
 from .pharmacies import cached_only, resolve
 from .search import find_medicines
 from .stats import Stats, count
@@ -233,11 +233,17 @@ async def handle_watch(
 
     try:
         stocks = await find_stocks(client, stock_cache, medicine_hash, city=city)
+        # Названия в выдаче наличия нет, когда наличия нет вовсе, — а именно
+        # тогда за препаратом и хотят следить. Тогда идём за ним в карточку.
+        name = (
+            stocks[0].medicine_name
+            if stocks
+            else parse_medicine_card(await client.medicine_card(medicine_hash))
+        )
     except (MisUnavailable, ParseError):
         await callback.answer("Сейчас не получилось, попробуйте позже")
         return
 
-    name = stocks[0].medicine_name if stocks else ""
     added = await watches.add(
         user_id, medicine_hash, city,
         name=name,

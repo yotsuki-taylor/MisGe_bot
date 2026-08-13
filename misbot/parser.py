@@ -188,6 +188,46 @@ def parse_pharmacy_card(html: str, pharmacy_id: int) -> Pharmacy:
     return pharmacy
 
 
+MEDICINE_CARD_LABELS = ("დასახელება", "დოზა", "ფორმა", "შეფუთვა1", "შეფუთვა2")
+"""Название, дозировка, форма выпуска, упаковка — в таком порядке они и
+склеиваются в выдаче поиска."""
+
+MEDICINE_CARD_COUNTS = ("რაოდენობა შეფუთვა2-ში", "რაოდენობა შეფუთვა1-ში")
+"""Количество в упаковке. Заполнено бывает любое из двух полей."""
+
+
+def parse_medicine_card(html: str) -> str:
+    """Название препарата из его карточки.
+
+    Нужно там, где выдачи наличия нет: препарата может не быть ни в одной
+    аптеке, а подписаться на него всё равно можно — собственно, тогда это и
+    нужно. В карточке название разложено по полям, поэтому собираем обратно.
+    """
+    tree = HTMLParser(html)
+    fields = {}
+
+    for row in tree.css("tr"):
+        cells = row.css("td")
+        if len(cells) < 2:
+            continue
+        label = _text(cells[0]).rstrip(": ").strip()
+        if label:
+            fields[label] = _text(cells[1])
+
+    parts = [fields.get(label, "") for label in MEDICINE_CARD_LABELS]
+    name = " ".join(part for part in parts if part).strip()
+    if not name:
+        raise ParseError("в карточке препарата нет названия")
+
+    # «#12» на конце — как в выдаче поиска, чтобы название не менялось после
+    # первой же фоновой проверки.
+    for label in MEDICINE_CARD_COUNTS:
+        count = fields.get(label, "").strip()
+        if count:
+            return f"{name} #{count}"
+    return name
+
+
 _GENMED_RE = re.compile(r"mis_genmed\.mis\?g=([^\"'&]+)")
 
 

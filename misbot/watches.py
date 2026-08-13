@@ -173,16 +173,25 @@ class WatchStore:
         *,
         available: bool,
         best_price: Optional[Decimal],
+        name: str = "",
     ) -> None:
+        """Записать результат проверки.
+
+        name заполняется только если у подписки его ещё нет: так починятся
+        записи, созданные когда препарата не было ни в одной аптеке и название
+        взять было неоткуда.
+        """
         if self._connection is None:
             return
         await self._connection.execute(
-            "UPDATE watches SET available = ?, best_price = ?, checked_at = ? "
+            "UPDATE watches SET available = ?, best_price = ?, checked_at = ?, "
+            "name = CASE WHEN name = '' THEN ? ELSE name END "
             "WHERE user_id = ? AND medicine = ? AND city = ?",
             (
                 int(available),
                 str(best_price) if best_price is not None else None,
                 datetime.now(timezone.utc).isoformat(),
+                name,
                 watch.user_id, watch.medicine, watch.city,
             ),
         )

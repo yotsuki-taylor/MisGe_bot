@@ -128,6 +128,11 @@ class MisClient:
             data[h] = "on"
         return await self._request("POST", PHARMACIES_PATH, data=data)
 
+    async def medicine_card(self, medicine_hash: str) -> str:
+        """Карточка препарата. Единственный источник названия, когда его нет
+        ни в одной аптеке и выдача наличия пуста."""
+        return await self._request("GET", f"/mis_medikamenti.mis?{medicine_hash}=m")
+
     async def generic_card(self, generic_hash: str) -> str:
         """Карточка действующего вещества: латинское название и АТХ-классификация."""
         return await self._request("GET", f"/mis_generiki.mis?{generic_hash}=g")

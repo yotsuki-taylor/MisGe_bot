@@ -7,7 +7,7 @@ import pytest
 
 from misbot.analogues import find_analogues
 from misbot.mis_client import MisUnavailable
-from misbot.parser import ParseError, parse_generic_name
+from misbot.parser import ParseError, parse_generic_name, parse_medicine_card
 
 FIXTURES = Path(__file__).parent / "fixtures"
 CARD = (FIXTURES / "generic_card_ibuprofen.html").read_text(encoding="utf-8")
@@ -55,6 +55,34 @@ class TestParseGenericName:
     def test_missing_link_raises(self):
         with pytest.raises(ParseError):
             parse_generic_name("<html><body>ничего похожего</body></html>")
+
+
+class TestParseMedicineCard:
+    CARD = (FIXTURES / "medicine_card_cytarabine.html").read_text(encoding="utf-8")
+    SEARCH_NAME = (
+        "ციტარაბინი LKM 1000მგ ლიოფილიზატი "
+        "საინექციო ხსნარის მოსამზადებლად ფლაკონი #1"
+    )
+
+    def test_assembles_the_name_from_the_fields(self):
+        assert parse_medicine_card(self.CARD) == self.SEARCH_NAME
+
+    def test_matches_the_search_result_exactly(self):
+        # Иначе название подписки поменялось бы после первой фоновой проверки.
+        assert parse_medicine_card(self.CARD) == self.SEARCH_NAME
+
+    def test_empty_card_raises(self):
+        with pytest.raises(ParseError):
+            parse_medicine_card("<html><body>ничего</body></html>")
+
+    def test_missing_count_is_not_a_problem(self):
+        html = (
+            "<table>"
+            "<tr><td><b>დასახელება:</b></td><td>ასპირინი</td></tr>"
+            "<tr><td><b>დოზა:</b></td><td>100მგ</td></tr>"
+            "</table>"
+        )
+        assert parse_medicine_card(html) == "ასპირინი 100მგ"
 
 
 class TestFindAnalogues:

@@ -90,6 +90,7 @@ class FakeCallback:
 CARD = (FIXTURES / "pharmacy_card_334.html").read_text(encoding="utf-8")
 GENERIC_CARD = (FIXTURES / "generic_card_ibuprofen.html").read_text(encoding="utf-8")
 GENERIC_LIST = (FIXTURES / "generic_medicines_ibuprofen.html").read_text(encoding="utf-8")
+MEDICINE_CARD = (FIXTURES / "medicine_card_cytarabine.html").read_text(encoding="utf-8")
 
 
 class FakeClient:
@@ -109,6 +110,9 @@ class FakeClient:
 
     async def medicines_by_generic(self, latin_name: str) -> str:
         return GENERIC_LIST
+
+    async def medicine_card(self, medicine_hash: str) -> str:
+        return MEDICINE_CARD
 
     async def pharmacy_card(self, pharmacy_id: int) -> str:
         self.card_calls.append(pharmacy_id)
@@ -411,6 +415,54 @@ class TestWatching:
         await handle_watch(FakeCallback(f"{WATCH_PREFIX}:{'A' * 32}:1"),
                            FakeClient(), cities, watches)
         assert (await watches.for_user(1))[0].name
+
+    async def test_name_is_kept_when_nothing_is_in_stock(self, cities, watches):
+        # Баг из жизни: название брали из выдачи наличия, а когда препарата
+        # нигде нет, выдача пуста — и подписка оставалась безымянной. Ровно
+        # тогда её и оформляют.
+        client = FakeClient(pharmacies_html=NO_PHARMACIES)
+        callback = FakeCallback(f"{WATCH_PREFIX}:{'A' * 32}:1")
+
+        await handle_watch(callback, client, cities, watches)
+
+        [saved] = await watches.for_user(1)
+        assert saved.available is False
+        assert "ციტარაბინი" in saved.name
+        assert "Цитарабин" in callback.message.replies[0].text
+
+    async def test_nameless_watch_gets_its_name_on_the_next_check(self, watches, tmp_path):
+        # Лечение подписок, созданных до починки: имя дописывается, когда
+        # препарат появится в аптеках.
+        from misbot.stock_cache import StockCache
+        from misbot.watcher import check_once
+        from datetime import timedelta
+
+        await watches.add(1, "A" * 32, 1, name="", available=False, best_price=None)
+
+        class StockClient:
+            async def pharmacies(self, hashes, **kwargs):
+                return PHARMACIES
+
+        async with StockCache(tmp_path / "s.sqlite3") as cache:
+            await check_once(StockClient(), cache, watches, every=timedelta(seconds=-1))
+
+        assert (await watches.for_user(1))[0].name
+
+    async def test_existing_name_is_not_overwritten(self, watches, tmp_path):
+        from misbot.stock_cache import StockCache
+        from misbot.watcher import check_once
+        from datetime import timedelta
+
+        await watches.add(1, "A" * 32, 1, name="моё", available=False, best_price=None)
+
+        class StockClient:
+            async def pharmacies(self, hashes, **kwargs):
+                return PHARMACIES
+
+        async with StockCache(tmp_path / "s.sqlite3") as cache:
+            await check_once(StockClient(), cache, watches, every=timedelta(seconds=-1))
+
+        assert (await watches.for_user(1))[0].name == "моё"
 
     async def test_site_failure_does_not_create_a_watch(self, cities, watches):
         client = FakeClient()

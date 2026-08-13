@@ -99,7 +99,10 @@ async def check_once(
 
         reason = decide(watch, stocks)
         await watches.record_check(
-            watch, available=bool(stocks), best_price=best_price(stocks)
+            watch,
+            available=bool(stocks),
+            best_price=best_price(stocks),
+            name=stocks[0].medicine_name if stocks else "",
         )
         if reason is not None:
             news.append((watch, reason, stocks))

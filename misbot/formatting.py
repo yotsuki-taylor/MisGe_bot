@@ -317,9 +317,14 @@ def analogues_unavailable() -> str:
     return "Не смог получить список аналогов. Попробуйте ещё раз чуть позже."
 
 
+UNNAMED_MEDICINE = "препаратом"
+"""Название не добыли — лучше обтекаемо, чем дыра в предложении."""
+
+
 def watch_added(medicine_name: str, city_name: str) -> str:
+    name = escape(translate_medicine(medicine_name)) if medicine_name else UNNAMED_MEDICINE
     return (
-        f"Слежу за <b>{escape(translate_medicine(medicine_name))}</b> "
+        f"Слежу за <b>{name}</b> "
         f"в городе <b>{escape(city_name)}</b>.\n\n"
         "Проверяю раз в сутки и напишу, когда препарат появится или подешевеет. "
         "Список подписок — /watching."
