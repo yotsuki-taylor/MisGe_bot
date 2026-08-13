@@ -23,6 +23,7 @@ from misbot.config import Config
 from misbot.locations import FALLBACK_CITIES, CityDirectory
 from misbot.stock_cache import StockCache
 from misbot.user_store import UserStore
+from misbot.watches import WatchStore
 
 from test_bot import FakeClient  # noqa: E402
 
@@ -214,6 +215,30 @@ class TestWiring:
                 )
 
         assert len(client.pharmacy_calls) == 1, "кеш до хендлера не доехал"
+
+    async def test_watch_store_reaches_the_handler(self, bot, dispatcher, session, tmp_path):
+        async with WatchStore(tmp_path / "wiring-watches.sqlite3") as watches:
+            await dispatcher.feed_update(
+                bot,
+                callback_update(f"w:{'A' * 32}:1"),
+                client=FakeClient(),
+                cities=CityDirectory(dict(FALLBACK_CITIES)),
+                config=Config(token=FAKE_TOKEN, default_city=1),
+                watches=watches,
+            )
+            assert await watches.count() == 1, "подписка до хендлера не доехала"
+
+    async def test_watching_command_answers(self, bot, dispatcher, session, tmp_path):
+        async with WatchStore(tmp_path / "wiring-list.sqlite3") as watches:
+            await dispatcher.feed_update(
+                bot,
+                message_update("/watching"),
+                client=FakeClient(),
+                cities=CityDirectory(dict(FALLBACK_CITIES)),
+                config=Config(token=FAKE_TOKEN),
+                watches=watches,
+            )
+        assert any("не слежу" in text for text in session.texts)
 
     async def test_id_command_reports_the_chat(self, bot, dispatcher, session):
         await dispatcher.feed_update(

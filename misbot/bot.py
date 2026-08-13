@@ -17,7 +17,7 @@ from typing import Dict, List, Optional, Sequence, Set  # noqa: F401
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -43,6 +43,8 @@ from .stats import Stats, count
 from .stock_cache import StockCache
 from .stocks import find_stocks
 from .user_store import UserStore
+from .watcher import best_price, run_forever
+from .watches import MAX_PER_USER, WatchStore
 
 log = logging.getLogger(__name__)
 
@@ -53,6 +55,8 @@ RESULTS_KEY = "results"
 MEDICINE_PREFIX = "m"
 CITY_PREFIX = "c"
 PAGE_PREFIX = "p"
+WATCH_PREFIX = "w"
+UNWATCH_PREFIX = "u"
 
 CITY_COLUMNS = 2
 
@@ -93,6 +97,35 @@ def medicines_keyboard(buttons: Sequence, offset: int, total: int) -> InlineKeyb
     if navigation:
         rows.append(navigation)
 
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def watch_keyboard(medicine_hash: str, city: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(
+            text="🔔 Следить за препаратом",
+            callback_data=f"{WATCH_PREFIX}:{medicine_hash}:{city}",
+        )
+    ]])
+
+
+def watches_keyboard(watches: Sequence) -> InlineKeyboardMarkup:
+    """Номера подписок — нажатие отписывает."""
+    row: List[InlineKeyboardButton] = []
+    rows: List[List[InlineKeyboardButton]] = []
+
+    for number, watch in enumerate(watches, start=1):
+        row.append(
+            InlineKeyboardButton(
+                text=str(number),
+                callback_data=f"{UNWATCH_PREFIX}:{watch.medicine}:{watch.city}",
+            )
+        )
+        if len(row) == 5:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -147,6 +180,80 @@ async def handle_stats(
     if stats is None:
         return
     await message.answer(fmt.stats_text(await stats.report()))
+
+
+async def handle_watching(
+    message: Message,
+    cities: CityDirectory,
+    watches: Optional[WatchStore] = None,
+) -> None:
+    if watches is None:
+        return
+    mine = await watches.for_user(_user_id(message.from_user))
+    await message.answer(
+        fmt.watch_list(mine, cities.name),
+        reply_markup=watches_keyboard(mine) if mine else None,
+    )
+
+
+async def handle_watch(
+    callback: CallbackQuery,
+    client: MisClient,
+    cities: CityDirectory,
+    watches: Optional[WatchStore] = None,
+    stock_cache: Optional[StockCache] = None,
+) -> None:
+    """Подписаться. Текущее наличие берём из кеша — он только что заполнен."""
+    if watches is None or callback.message is None:
+        await callback.answer()
+        return
+
+    _, medicine_hash, raw_city = callback.data.split(":", 2)
+    city = _int(raw_city) or 0
+    user_id = _user_id(callback.from_user)
+
+    try:
+        stocks = await find_stocks(client, stock_cache, medicine_hash, city=city)
+    except (MisUnavailable, ParseError):
+        await callback.answer("Сейчас не получилось, попробуйте позже")
+        return
+
+    name = stocks[0].medicine_name if stocks else ""
+    added = await watches.add(
+        user_id, medicine_hash, city,
+        name=name,
+        available=bool(stocks),
+        best_price=best_price(stocks),
+    )
+
+    if not added:
+        await callback.answer()
+        await callback.message.answer(fmt.watch_limit(MAX_PER_USER))
+        return
+
+    await callback.answer("Слежу")
+    await callback.message.answer(fmt.watch_added(name, cities.name(city)))
+
+
+async def handle_unwatch(
+    callback: CallbackQuery,
+    cities: CityDirectory,
+    watches: Optional[WatchStore] = None,
+) -> None:
+    if watches is None or callback.message is None:
+        await callback.answer()
+        return
+
+    _, medicine_hash, raw_city = callback.data.split(":", 2)
+    user_id = _user_id(callback.from_user)
+    await watches.remove(user_id, medicine_hash, _int(raw_city) or 0)
+    await callback.answer("Больше не слежу")
+
+    mine = await watches.for_user(user_id)
+    await callback.message.edit_text(
+        fmt.watch_list(mine, cities.name),
+        reply_markup=watches_keyboard(mine) if mine else None,
+    )
 
 
 async def handle_id(message: Message) -> None:
@@ -278,6 +385,7 @@ async def handle_medicine_chosen(
     users: Optional[UserStore] = None,
     alerts: Optional[Alerter] = None,
     stock_cache: Optional[StockCache] = None,
+    watches: Optional[WatchStore] = None,
 ) -> None:
     medicine_hash = callback.data.split(":", 1)[1]
     user_id = _user_id(callback.from_user)
@@ -310,7 +418,12 @@ async def handle_medicine_chosen(
 
     await count(stats, counters.STOCKS, user_id)
 
-    await _answer_with_addresses(callback.message, stocks, cities.name(city), client, cache)
+    await _answer_with_addresses(
+        callback.message, stocks, cities.name(city), client, cache,
+        # Кнопка «следить» нужна и когда препарата нет: как раз тогда за ним
+        # и хочется следить.
+        watch=watch_keyboard(medicine_hash, city) if watches is not None else None,
+    )
 
 
 async def _answer_with_addresses(
@@ -319,6 +432,7 @@ async def _answer_with_addresses(
     city_name: str,
     client: MisClient,
     cache: Optional[PharmacyCache],
+    watch: Optional[InlineKeyboardMarkup] = None,
 ) -> None:
     """Сначала цены, потом адреса.
 
@@ -334,6 +448,7 @@ async def _answer_with_addresses(
     sent = await message.answer(
         fmt.stocks_message(stocks, city_name, cached),
         disable_web_page_preview=True,
+        reply_markup=watch,
     )
 
     if not wanted or cached_only(cached, wanted):
@@ -347,6 +462,7 @@ async def _answer_with_addresses(
         await sent.edit_text(
             fmt.stocks_message(stocks, city_name, resolved),
             disable_web_page_preview=True,
+            reply_markup=watch,
         )
     except TelegramBadRequest:
         # Текст не изменился или сообщение уже недоступно — не повод падать.
@@ -428,10 +544,13 @@ def build_router() -> Router:
     router.message.register(handle_city, Command("city"))
     router.message.register(handle_stats, Command("stats"))
     router.message.register(handle_id, Command("id"))
+    router.message.register(handle_watching, Command("watching"))
     router.message.register(handle_query, F.text & ~F.text.startswith("/"))
 
     router.callback_query.register(handle_city_chosen, F.data.startswith(f"{CITY_PREFIX}:"))
     router.callback_query.register(handle_page, F.data.startswith(f"{PAGE_PREFIX}:"))
+    router.callback_query.register(handle_watch, F.data.startswith(f"{WATCH_PREFIX}:"))
+    router.callback_query.register(handle_unwatch, F.data.startswith(f"{UNWATCH_PREFIX}:"))
     router.callback_query.register(
         handle_medicine_chosen, F.data.startswith(f"{MEDICINE_PREFIX}:")
     )
@@ -462,20 +581,29 @@ async def run(config: Config) -> None:
         async with PharmacyCache(config.database) as cache:
             async with Stats(config.database) as stats, \
                     UserStore(config.database) as users, \
-                    StockCache(config.database) as stock_cache:
+                    StockCache(config.database) as stock_cache, \
+                    WatchStore(config.database) as watches:
                 cities = await CityDirectory.load(client)
                 dropped = await stock_cache.prune()
                 log.info(
                     "бот запускается, город по умолчанию: %s, карточек аптек в кеше: %d, "
                     "остатков в кеше: %d (выброшено протухших: %d), "
-                    "пользователей: %d, владелец: %s",
+                    "пользователей: %d, подписок: %d, владелец: %s",
                     cities.name(config.default_city),
                     await cache.count(),
                     await stock_cache.count(),
                     dropped,
                     await users.count(),
+                    await watches.count(),
                     f"{config.admin_id} (/stats и алерты)" if config.admin_id
                     else "не задан, /stats и алерты выключены",
+                )
+
+                worker = asyncio.create_task(
+                    run_forever(
+                        client, stock_cache, watches,
+                        _notifier(bot, cities),
+                    )
                 )
                 try:
                     await dispatcher.start_polling(
@@ -488,9 +616,33 @@ async def run(config: Config) -> None:
                         users=users,
                         alerts=alerts,
                         stock_cache=stock_cache,
+                        watches=watches,
                     )
                 finally:
+                    worker.cancel()
+                    await asyncio.gather(worker, return_exceptions=True)
                     await bot.session.close()
+
+
+def _notifier(bot: Bot, cities: CityDirectory):
+    """Отправка уведомления по подписке.
+
+    Заблокировавший бота пользователь — обычное дело, а не повод остановить
+    обход остальных подписок.
+    """
+    async def notify(watch, reason: str, stocks) -> None:
+        try:
+            await bot.send_message(
+                watch.user_id,
+                fmt.watch_news(watch, reason, stocks, cities.name(watch.city)),
+                disable_web_page_preview=True,
+            )
+        except TelegramForbiddenError:
+            log.info("подписчик %s заблокировал бота", watch.user_id)
+        except TelegramBadRequest as exc:
+            log.warning("не доставил уведомление: %s", exc)
+
+    return notify
 
 
 def main() -> int:

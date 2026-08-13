@@ -42,8 +42,11 @@ def help_text() -> str:
         "Просто напишите название препарата: <code>нурофен</code>, "
         "<code>diclofenac</code>, <code>ნუროფენი</code>.\n\n"
         "Из списка выберите нужную форму выпуска — покажу аптеки с ценами.\n\n"
+        "Под списком аптек есть кнопка «Следить»: я буду проверять препарат "
+        "раз в сутки и напишу, когда он появится или подешевеет.\n\n"
         "<b>Команды</b>\n"
         "/city — выбрать город\n"
+        "/watching — за чем слежу\n"
         "/about — откуда данные\n\n"
         f"<i>{DISCLAIMER}</i>"
     )
@@ -295,6 +298,77 @@ def strip_area(address: str, stock: Stock) -> str:
 
 def city_chosen(city_name: str) -> str:
     return f"Город: <b>{escape(city_name)}</b>. Напишите название препарата."
+
+
+def watch_added(medicine_name: str, city_name: str) -> str:
+    return (
+        f"Слежу за <b>{escape(translate_medicine(medicine_name))}</b> "
+        f"в городе <b>{escape(city_name)}</b>.\n\n"
+        "Проверяю раз в сутки и напишу, когда препарат появится или подешевеет. "
+        "Список подписок — /watching."
+    )
+
+
+def watch_removed() -> str:
+    return "Больше не слежу. Список подписок — /watching."
+
+
+def watch_limit(limit: int) -> str:
+    return (
+        f"Уже слежу за {limit} препаратами — это предел. "
+        "Отпишитесь от ненужного через /watching, и можно будет добавить новый."
+    )
+
+
+def watch_list(watches, city_name) -> str:
+    """Список подписок. city_name — функция, переводящая id города в название."""
+    if not watches:
+        return (
+            "Пока ни за чем не слежу.\n\n"
+            "Найдите препарат, откройте аптеки и нажмите «Следить» — "
+            "я буду проверять раз в сутки и напишу, когда он появится или подешевеет."
+        )
+
+    lines = ["<b>Слежу за препаратами</b>", ""]
+    for number, watch in enumerate(watches, start=1):
+        name = escape(translate_medicine(watch.name)) if watch.name else "препарат"
+        state = (
+            f"есть, от {watch.best_price} ₾"
+            if watch.available and watch.best_price is not None
+            else "есть" if watch.available
+            else "нет в наличии"
+        )
+        lines.append(f"<b>{number}.</b> {name}")
+        lines.append(f"    {escape(city_name(watch.city))} · {state}")
+    lines.append("")
+    lines.append("Чтобы перестать следить, нажмите номер.")
+    return "\n".join(lines)
+
+
+def watch_news(watch, reason: str, stocks, city_name: str) -> str:
+    """Уведомление о том, что препарат появился или подешевел."""
+    shown = shown_stocks(stocks, limit=3)
+    name = escape(translate_medicine(watch.name or (shown[0].medicine_name if shown else "")))
+
+    # Заголовок отдельной строкой: названия препаратов длинные и кончаются
+    # на «16 шт.», к которому «появился» прилипает нечитаемо.
+    if reason == "cheaper":
+        headline = "💰 <b>Подешевел</b>"
+        prices = [s.price for s in shown if s.price is not None]
+        if watch.best_price is not None and prices:
+            headline += f": было от {watch.best_price} ₾, стало от {min(prices)} ₾"
+    else:
+        headline = "🔔 <b>Появился в продаже</b>"
+
+    lines = [headline, "", name, f"Город: {escape(city_name)}", ""]
+    for stock in shown:
+        price = f"<b>{stock.price} ₾</b>" if stock.price is not None else "цена не указана"
+        lines.append(f"{price} — {escape(pharmacy_label(stock.pharmacy_name))}")
+    lines.append("")
+    lines.append("Отписаться или посмотреть список — /watching.")
+    lines.append(f"<i>{DISCLAIMER}</i>")
+    lines.append(SOURCE_LINE)
+    return "\n".join(lines)
 
 
 def chat_id(value: int) -> str:

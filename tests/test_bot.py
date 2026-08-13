@@ -18,6 +18,8 @@ from misbot.bot import (
     CITY_PREFIX,
     MEDICINE_PREFIX,
     PAGE_PREFIX,
+    UNWATCH_PREFIX,
+    WATCH_PREFIX,
     _busy,
     _city_fallback,
     _current_city,
@@ -29,6 +31,9 @@ from misbot.bot import (
     handle_page,
     handle_query,
     handle_stats,
+    handle_unwatch,
+    handle_watch,
+    handle_watching,
     medicines_keyboard,
 )
 from misbot.config import Config
@@ -37,6 +42,7 @@ from misbot.mis_client import MisUnavailable
 from misbot.parser import parse_search
 from misbot.stats import Stats
 from misbot.user_store import UserStore
+from misbot.watches import MAX_PER_USER, WatchStore
 
 FIXTURES = Path(__file__).parent / "fixtures"
 FOUND = (FIXTURES / "search_nurofen.html").read_text(encoding="utf-8")
@@ -350,6 +356,92 @@ class TestCity:
         # Хранилища нет — город живёт до перезапуска, но бот не падает.
         await handle_city_chosen(FakeCallback(f"{CITY_PREFIX}:5"), cities, None)
         assert await _current_city(1, None, config) == 5
+
+
+class TestWatching:
+    @pytest.fixture
+    async def watches(self, tmp_path):
+        async with WatchStore(tmp_path / "watches.sqlite3") as store:
+            yield store
+
+    async def test_stocks_message_offers_to_watch(self, state, cities, config, watches):
+        callback = FakeCallback(f"{MEDICINE_PREFIX}:{'A' * 32}")
+        await handle_medicine_chosen(
+            callback, state, FakeClient(), cities, config, watches=watches
+        )
+        markup = callback.message.replies[0].markup
+
+        assert markup is not None
+        assert "Следить" in markup.inline_keyboard[0][0].text
+
+    async def test_watch_button_is_offered_even_when_nothing_is_in_stock(
+        self, state, cities, config, watches
+    ):
+        # Как раз тогда следить и хочется.
+        callback = FakeCallback(f"{MEDICINE_PREFIX}:{'A' * 32}")
+        client = FakeClient(pharmacies_html=NO_PHARMACIES)
+        await handle_medicine_chosen(
+            callback, state, client, cities, config, watches=watches
+        )
+        assert callback.message.replies[0].markup is not None
+
+    async def test_subscribing_remembers_the_current_state(self, cities, watches):
+        callback = FakeCallback(f"{WATCH_PREFIX}:{'A' * 32}:1")
+        await handle_watch(callback, FakeClient(), cities, watches)
+
+        [saved] = await watches.for_user(1)
+        assert saved.city == 1
+        assert saved.available is True
+        assert saved.best_price is not None
+        assert callback.answered == ["Слежу"]
+
+    async def test_subscribing_stores_the_name_for_the_list(self, cities, watches):
+        await handle_watch(FakeCallback(f"{WATCH_PREFIX}:{'A' * 32}:1"),
+                           FakeClient(), cities, watches)
+        assert (await watches.for_user(1))[0].name
+
+    async def test_site_failure_does_not_create_a_watch(self, cities, watches):
+        client = FakeClient()
+        client.fail_with["pharmacies"] = MisUnavailable("нет связи")
+        callback = FakeCallback(f"{WATCH_PREFIX}:{'A' * 32}:1")
+
+        await handle_watch(callback, client, cities, watches)
+        assert await watches.count() == 0
+
+    async def test_limit_is_explained(self, cities, watches):
+        for number in range(MAX_PER_USER):
+            await watches.add(1, f"{number:032X}", 1, name="", available=False,
+                              best_price=None)
+
+        callback = FakeCallback(f"{WATCH_PREFIX}:{'F' * 32}:1")
+        await handle_watch(callback, FakeClient(), cities, watches)
+
+        assert "предел" in callback.message.replies[0].text
+
+    async def test_list_is_empty_at_first(self, cities, watches):
+        message = FakeMessage("/watching")
+        await handle_watching(message, cities, watches)
+
+        assert "Пока ни за чем не слежу" in message.replies[0].text
+        assert message.replies[0].markup is None
+
+    async def test_list_shows_watches_with_buttons(self, cities, watches):
+        await watches.add(1, "A" * 32, 1, name="ნუროფენი", available=True,
+                          best_price=None)
+        message = FakeMessage("/watching")
+        await handle_watching(message, cities, watches)
+
+        assert "Нурофен" in message.replies[0].text
+        assert message.replies[0].markup.inline_keyboard[0][0].text == "1"
+
+    async def test_unsubscribing_updates_the_list(self, cities, watches):
+        await watches.add(1, "A" * 32, 1, name="", available=False, best_price=None)
+        callback = FakeCallback(f"{UNWATCH_PREFIX}:{'A' * 32}:1")
+
+        await handle_unwatch(callback, cities, watches)
+
+        assert await watches.count() == 0
+        assert "Пока ни за чем не слежу" in callback.message.text
 
 
 class TestKeyboards:
