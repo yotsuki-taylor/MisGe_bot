@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from logging.handlers import RotatingFileHandler
-from typing import List, Optional, Sequence, Set  # noqa: F401
+from typing import Dict, List, Optional, Sequence, Set  # noqa: F401
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
@@ -30,6 +30,7 @@ from aiogram.types import (
 
 from . import formatting as fmt
 from . import stats as counters
+from .alerts import Alerter
 from .cache import PharmacyCache
 from .config import Config, ConfigError
 from .locations import EVERYWHERE, CityDirectory
@@ -39,6 +40,7 @@ from .parser import ParseError, QueryTooShort, parse_pharmacies
 from .pharmacies import cached_only, resolve
 from .search import find_medicines
 from .stats import Stats, count
+from .user_store import UserStore
 
 log = logging.getLogger(__name__)
 
@@ -54,6 +56,9 @@ CITY_COLUMNS = 2
 
 _busy: Set[int] = set()
 """Кто уже ждёт ответа. Один пользователь — один запрос к mis.ge за раз."""
+
+_city_fallback: Dict[int, int] = {}
+"""Выбранный город, когда база не подключена (тесты и запуск без хранилища)."""
 
 
 # --- клавиатуры ------------------------------------------------------------
@@ -142,13 +147,19 @@ async def handle_stats(
     await message.answer(fmt.stats_text(await stats.report()))
 
 
+async def handle_id(message: Message) -> None:
+    """Свой telegram id — чтобы было что положить в MISGE_ADMIN_ID."""
+    await message.answer(fmt.chat_id(_user_id(message.from_user)))
+
+
 async def handle_city(
     message: Message,
-    state: FSMContext,
     cities: CityDirectory,
     config: Config,
+    users: Optional[UserStore] = None,
 ) -> None:
-    current = await _current_city(state, config)
+    user_id = message.from_user.id if message.from_user else 0
+    current = await _current_city(user_id, users, config)
     await message.answer(
         fmt.choose_city(cities.name(current)),
         reply_markup=cities_keyboard(cities),
@@ -157,15 +168,20 @@ async def handle_city(
 
 async def handle_city_chosen(
     callback: CallbackQuery,
-    state: FSMContext,
     cities: CityDirectory,
+    users: Optional[UserStore] = None,
 ) -> None:
     city_id = _int(callback.data.split(":", 1)[1])
     if city_id is None or not cities.known(city_id):
         await callback.answer("Такого города не знаю")
         return
 
-    await state.update_data(**{CITY_KEY: city_id})
+    user_id = callback.from_user.id if callback.from_user else 0
+    if users is not None:
+        await users.set_city(user_id, city_id)
+    else:
+        _city_fallback[user_id] = city_id
+
     await callback.answer()
     if callback.message:
         await callback.message.edit_text(fmt.city_chosen(cities.name(city_id)))
@@ -180,6 +196,8 @@ async def handle_query(
     cities: CityDirectory,
     config: Config,
     stats: Optional[Stats] = None,
+    users: Optional[UserStore] = None,
+    alerts: Optional[Alerter] = None,
 ) -> None:
     user_id = _user_id(message.from_user)
     if user_id in _busy:
@@ -201,9 +219,11 @@ async def handle_query(
             await count(stats, counters.UNAVAILABLE)
             await notice.edit_text(fmt.site_unavailable())
             return
-        except ParseError:
+        except ParseError as exc:
             await count(stats, counters.UNAVAILABLE)
-            log.error("парсер сломался на выдаче поиска")
+            log.error("парсер сломался на выдаче поиска: %s", exc)
+            if alerts is not None:
+                await alerts.parser_broken("поиск препарата", str(exc))
             await notice.edit_text(fmt.parser_broken())
             return
 
@@ -215,7 +235,7 @@ async def handle_query(
         await count(stats, counters.FOUND)
 
         await _remember(state, outcome.medicines)
-        city = await _current_city(state, config)
+        city = await _current_city(user_id, users, config)
         text, buttons = fmt.medicines_page(outcome.medicines, 0, cities.name(city))
         await notice.edit_text(
             text, reply_markup=medicines_keyboard(buttons, 0, len(outcome.medicines))
@@ -229,6 +249,7 @@ async def handle_page(
     state: FSMContext,
     cities: CityDirectory,
     config: Config,
+    users: Optional[UserStore] = None,
 ) -> None:
     offset = _int(callback.data.split(":", 1)[1]) or 0
     medicines = await _recall(state)
@@ -237,7 +258,7 @@ async def handle_page(
     if not medicines or not callback.message:
         return
 
-    city = await _current_city(state, config)
+    city = await _current_city(_user_id(callback.from_user), users, config)
     text, buttons = fmt.medicines_page(medicines, offset, cities.name(city))
     await callback.message.edit_text(
         text, reply_markup=medicines_keyboard(buttons, offset, len(medicines))
@@ -252,6 +273,8 @@ async def handle_medicine_chosen(
     config: Config,
     cache: Optional[PharmacyCache] = None,
     stats: Optional[Stats] = None,
+    users: Optional[UserStore] = None,
+    alerts: Optional[Alerter] = None,
 ) -> None:
     medicine_hash = callback.data.split(":", 1)[1]
     user_id = _user_id(callback.from_user)
@@ -264,7 +287,7 @@ async def handle_medicine_chosen(
     if callback.message is None:
         return
 
-    city = await _current_city(state, config)
+    city = await _current_city(user_id, users, config)
     _busy.add(user_id)
     try:
         stocks = parse_pharmacies(await client.pharmacies([medicine_hash], city=city))
@@ -272,9 +295,11 @@ async def handle_medicine_chosen(
         await count(stats, counters.UNAVAILABLE)
         await callback.message.answer(fmt.site_unavailable())
         return
-    except ParseError:
+    except ParseError as exc:
         await count(stats, counters.UNAVAILABLE)
-        log.error("парсер сломался на выдаче аптек")
+        log.error("парсер сломался на выдаче аптек: %s", exc)
+        if alerts is not None:
+            await alerts.parser_broken("наличие в аптеках", str(exc))
         await callback.message.answer(fmt.parser_broken())
         return
     finally:
@@ -327,9 +352,17 @@ async def _answer_with_addresses(
 
 # --- состояние -------------------------------------------------------------
 
-async def _current_city(state: FSMContext, config: Config) -> int:
-    data = await state.get_data()
-    return data.get(CITY_KEY, config.default_city)
+async def _current_city(
+    user_id: int,
+    users: Optional[UserStore],
+    config: Config,
+) -> int:
+    if users is not None:
+        chosen = await users.get_city(user_id)
+        if chosen is not None:
+            return chosen
+        return config.default_city
+    return _city_fallback.get(user_id, config.default_city)
 
 
 async def _remember(state: FSMContext, medicines: Sequence[Medicine]) -> None:
@@ -391,6 +424,7 @@ def build_router() -> Router:
     router.message.register(handle_about, Command("about"))
     router.message.register(handle_city, Command("city"))
     router.message.register(handle_stats, Command("stats"))
+    router.message.register(handle_id, Command("id"))
     router.message.register(handle_query, F.text & ~F.text.startswith("/"))
 
     router.callback_query.register(handle_city_chosen, F.data.startswith(f"{CITY_PREFIX}:"))
@@ -417,16 +451,22 @@ async def run(config: Config) -> None:
     )
     dispatcher = build_dispatcher()
 
+    # Владелец один и тот же и для /stats, и для сообщений о поломке: в личной
+    # переписке telegram id пользователя совпадает с id чата.
+    alerts = Alerter(bot, config.admin_id or None)
+
     async with MisClient(contact=config.contact) as client:
         async with PharmacyCache(config.database) as cache:
-            async with Stats(config.database) as stats:
+            async with Stats(config.database) as stats, UserStore(config.database) as users:
                 cities = await CityDirectory.load(client)
                 log.info(
                     "бот запускается, город по умолчанию: %s, карточек аптек в кеше: %d, "
-                    "статистика: %s",
+                    "пользователей: %d, владелец: %s",
                     cities.name(config.default_city),
                     await cache.count(),
-                    f"/stats для {config.admin_id}" if config.admin_id else "команда выключена",
+                    await users.count(),
+                    f"{config.admin_id} (/stats и алерты)" if config.admin_id
+                    else "не задан, /stats и алерты выключены",
                 )
                 try:
                     await dispatcher.start_polling(
@@ -436,6 +476,8 @@ async def run(config: Config) -> None:
                         config=config,
                         cache=cache,
                         stats=stats,
+                        users=users,
+                        alerts=alerts,
                     )
                 finally:
                     await bot.session.close()

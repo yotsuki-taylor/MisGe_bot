@@ -297,6 +297,14 @@ def city_chosen(city_name: str) -> str:
     return f"Город: <b>{escape(city_name)}</b>. Напишите название препарата."
 
 
+def chat_id(value: int) -> str:
+    return (
+        f"Ваш telegram id: <code>{value}</code>\n\n"
+        "Положите его в <code>MISGE_ADMIN_ID</code>, чтобы получать /stats "
+        "и сообщения о поломке разбора."
+    )
+
+
 def choose_city(current_name: str) -> str:
     return f"Сейчас ищу в: <b>{escape(current_name)}</b>.\n\nВыберите город:"
 

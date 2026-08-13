@@ -19,6 +19,7 @@ from misbot.bot import (
     MEDICINE_PREFIX,
     PAGE_PREFIX,
     _busy,
+    _city_fallback,
     _current_city,
     _recall,
     _remember,
@@ -35,6 +36,7 @@ from misbot.locations import EVERYWHERE, FALLBACK_CITIES, CityDirectory
 from misbot.mis_client import MisUnavailable
 from misbot.parser import parse_search
 from misbot.stats import Stats
+from misbot.user_store import UserStore
 
 FIXTURES = Path(__file__).parent / "fixtures"
 FOUND = (FIXTURES / "search_nurofen.html").read_text(encoding="utf-8")
@@ -127,11 +129,19 @@ def config() -> Config:
     return Config(token="test", default_city=1)
 
 
+@pytest.fixture
+async def users(tmp_path):
+    async with UserStore(tmp_path / "users.sqlite3") as store:
+        yield store
+
+
 @pytest.fixture(autouse=True)
-def clean_busy():
+def clean_globals():
     _busy.clear()
+    _city_fallback.clear()
     yield
     _busy.clear()
+    _city_fallback.clear()
 
 
 class TestQuery:
@@ -214,12 +224,13 @@ class TestPaging:
 
 
 class TestMedicineChosen:
-    async def test_asks_the_site_for_the_current_city(self, state, cities, config):
-        await state.update_data(city=5)
+    async def test_asks_the_site_for_the_current_city(self, state, cities, config, users):
+        await users.set_city(1, 5)
         client = FakeClient(pharmacies_html=NO_PHARMACIES)
         medicine_hash = "8D04DC19D9A1E25F51B8F06BE3B2E0EE"
         await handle_medicine_chosen(
-            FakeCallback(f"{MEDICINE_PREFIX}:{medicine_hash}"), state, client, cities, config
+            FakeCallback(f"{MEDICINE_PREFIX}:{medicine_hash}"),
+            state, client, cities, config, users=users,
         )
         assert client.pharmacy_calls == [((medicine_hash,), 5)]
 
@@ -286,23 +297,44 @@ class TestMedicineChosen:
 
 
 class TestCity:
-    async def test_choosing_a_city_saves_it(self, state, cities, config):
-        await handle_city_chosen(FakeCallback(f"{CITY_PREFIX}:5"), state, cities)
-        assert await _current_city(state, config) == 5
+    async def test_choosing_a_city_saves_it(self, cities, config, users):
+        await handle_city_chosen(FakeCallback(f"{CITY_PREFIX}:5"), cities, users)
+        assert await _current_city(1, users, config) == 5
 
-    async def test_unknown_city_is_ignored(self, state, cities, config):
+    async def test_unknown_city_is_ignored(self, cities, config, users):
         callback = FakeCallback(f"{CITY_PREFIX}:999")
-        await handle_city_chosen(callback, state, cities)
+        await handle_city_chosen(callback, cities, users)
 
-        assert await _current_city(state, config) == config.default_city
+        assert await _current_city(1, users, config) == config.default_city
         assert callback.answered == ["Такого города не знаю"]
 
-    async def test_everywhere_is_a_valid_choice(self, state, cities, config):
-        await handle_city_chosen(FakeCallback(f"{CITY_PREFIX}:{EVERYWHERE}"), state, cities)
-        assert await _current_city(state, config) == EVERYWHERE
+    async def test_everywhere_is_a_valid_choice(self, cities, config, users):
+        await handle_city_chosen(FakeCallback(f"{CITY_PREFIX}:{EVERYWHERE}"), cities, users)
+        assert await _current_city(1, users, config) == EVERYWHERE
 
-    async def test_default_city_applies_until_chosen(self, state, config):
-        assert await _current_city(state, config) == 1
+    async def test_default_city_applies_until_chosen(self, config, users):
+        assert await _current_city(1, users, config) == 1
+
+    async def test_choice_survives_a_restart(self, cities, config, tmp_path):
+        # Ради этого всё и затевалось: перезапуск не должен сбрасывать город.
+        path = tmp_path / "restart.sqlite3"
+        async with UserStore(path) as before:
+            await handle_city_chosen(FakeCallback(f"{CITY_PREFIX}:5"), cities, before)
+
+        async with UserStore(path) as after:
+            assert await _current_city(1, after, config) == 5
+
+    async def test_users_do_not_share_a_city(self, cities, config, users):
+        await handle_city_chosen(FakeCallback(f"{CITY_PREFIX}:5", user_id=1), cities, users)
+        await handle_city_chosen(FakeCallback(f"{CITY_PREFIX}:2", user_id=2), cities, users)
+
+        assert await _current_city(1, users, config) == 5
+        assert await _current_city(2, users, config) == 2
+
+    async def test_works_without_a_store(self, cities, config):
+        # Хранилища нет — город живёт до перезапуска, но бот не падает.
+        await handle_city_chosen(FakeCallback(f"{CITY_PREFIX}:5"), cities, None)
+        assert await _current_city(1, None, config) == 5
 
 
 class TestKeyboards:
@@ -398,7 +430,7 @@ class TestStatsCommand:
         await _remember(state, medicines)
         callback = FakeCallback(f"{MEDICINE_PREFIX}:{medicines[0].hash}")
         await handle_medicine_chosen(
-            callback, state, FakeClient(), cities, admin_config, None, stats
+            callback, state, FakeClient(), cities, admin_config, stats=stats
         )
         today, _week, _total = await stats.report()
         assert today.stocks == 1

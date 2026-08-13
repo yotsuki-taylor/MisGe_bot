@@ -17,9 +17,11 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.methods import AnswerCallbackQuery, EditMessageText, SendMessage, TelegramMethod
 from aiogram.types import Chat, Message, Update, User
 
+from misbot.alerts import Alerter
 from misbot.bot import build_dispatcher
 from misbot.config import Config
 from misbot.locations import FALLBACK_CITIES, CityDirectory
+from misbot.user_store import UserStore
 
 from test_bot import FakeClient  # noqa: E402
 
@@ -143,6 +145,50 @@ class TestWiring:
         )
         sends = [r for r in session.requests if isinstance(r, SendMessage)]
         assert sends[-1].reply_markup is not None
+
+    async def test_user_store_reaches_the_handler(self, bot, dispatcher, session, tmp_path):
+        # Хендлеры вызываются в тестах напрямую, и там подмена всегда доезжает.
+        # Здесь проверяется именно проводка aiogram: имя параметра совпало с
+        # ключом в start_polling.
+        async with UserStore(tmp_path / "wiring.sqlite3") as users:
+            await users.set_city(USER.id, 5)
+            await dispatcher.feed_update(
+                bot,
+                message_update("/city"),
+                client=FakeClient(),
+                cities=CityDirectory(dict(FALLBACK_CITIES)),
+                config=Config(token=FAKE_TOKEN, default_city=1),
+                users=users,
+            )
+
+        assert any("Батуми" in text for text in session.texts), "город взят не из базы"
+
+    async def test_alerter_reaches_the_handler(self, bot, dispatcher, session):
+        broken = FakeClient(search_html="<html><body>всё поменялось</body></html>")
+        alerts = Alerter(bot, chat_id=777)
+
+        await dispatcher.feed_update(
+            bot,
+            message_update("нурофен"),
+            client=broken,
+            cities=CityDirectory(dict(FALLBACK_CITIES)),
+            config=Config(token=FAKE_TOKEN, default_city=1),
+            alerts=alerts,
+        )
+
+        sent = [r for r in session.requests if isinstance(r, SendMessage)]
+        assert any(r.chat_id == 777 for r in sent), "админу о поломке не написали"
+        assert any("Не разобрался в ответе" in (r.text or "") for r in sent)
+
+    async def test_id_command_reports_the_chat(self, bot, dispatcher, session):
+        await dispatcher.feed_update(
+            bot,
+            message_update("/id"),
+            client=FakeClient(),
+            cities=CityDirectory(dict(FALLBACK_CITIES)),
+            config=Config(token=FAKE_TOKEN),
+        )
+        assert any(str(CHAT.id) in text for text in session.texts)
 
     async def test_html_parse_mode_is_on(self, bot, dispatcher, session):
         await dispatcher.feed_update(
