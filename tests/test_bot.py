@@ -214,6 +214,25 @@ class TestQuery:
         await handle_query(FakeMessage("нурофен"), state, client, cities, config)
         assert 1 not in _busy
 
+    async def test_availability_is_counted_for_the_page(self, state, cities, config):
+        message = FakeMessage("нурофен")
+        await handle_query(message, state, FakeClient(), cities, config)
+
+        assert "есть в" in message.replies[0].text
+
+    async def test_failed_count_does_not_break_the_answer(self, state, cities, config):
+        # Числа — украшение: без них список всё ещё полезен, а вот без списка
+        # пользователю делать нечего.
+        client = FakeClient()
+        client.fail_with["pharmacies"] = MisUnavailable("нет связи")
+        message = FakeMessage("нурофен")
+
+        await handle_query(message, state, client, cities, config)
+
+        answer = message.replies[0]
+        assert "Нашлось" in answer.text
+        assert "есть в" not in answer.text
+
     async def test_results_are_saved_for_paging(self, state, cities, config):
         await handle_query(FakeMessage("нурофен"), state, FakeClient(), cities, config)
         assert len(await _recall(state)) == 29

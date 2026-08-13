@@ -42,7 +42,7 @@ from .pharmacies import cached_only, resolve
 from .search import find_medicines
 from .stats import Stats, count
 from .stock_cache import StockCache
-from .stocks import find_stocks
+from .stocks import count_by_medicine, find_stocks
 from .user_store import UserStore
 from .watcher import best_price, run_forever
 from .watches import MAX_PER_USER, WatchStore
@@ -289,6 +289,7 @@ async def handle_analogues(
     config: Config,
     users: Optional[UserStore] = None,
     alerts: Optional[Alerter] = None,
+    stock_cache: Optional[StockCache] = None,
 ) -> None:
     """Препараты с тем же действующим веществом.
 
@@ -330,6 +331,7 @@ async def handle_analogues(
     text, buttons = fmt.medicines_page(
         medicines, 0, cities.name(city),
         title=fmt.analogues_title(generic, len(medicines)),
+        counts=await _counts(client, stock_cache, medicines, 0, city),
     )
     await callback.message.answer(
         text, reply_markup=medicines_keyboard(buttons, 0, len(medicines))
@@ -387,6 +389,7 @@ async def handle_query(
     stats: Optional[Stats] = None,
     users: Optional[UserStore] = None,
     alerts: Optional[Alerter] = None,
+    stock_cache: Optional[StockCache] = None,
 ) -> None:
     user_id = _user_id(message.from_user)
     if user_id in _busy:
@@ -425,7 +428,10 @@ async def handle_query(
 
         await _remember(state, outcome.medicines)
         city = await _current_city(user_id, users, config)
-        text, buttons = fmt.medicines_page(outcome.medicines, 0, cities.name(city))
+        text, buttons = fmt.medicines_page(
+            outcome.medicines, 0, cities.name(city),
+            counts=await _counts(client, stock_cache, outcome.medicines, 0, city),
+        )
         await notice.edit_text(
             text, reply_markup=medicines_keyboard(buttons, 0, len(outcome.medicines))
         )
@@ -439,6 +445,8 @@ async def handle_page(
     cities: CityDirectory,
     config: Config,
     users: Optional[UserStore] = None,
+    client: Optional[MisClient] = None,
+    stock_cache: Optional[StockCache] = None,
 ) -> None:
     offset = _int(callback.data.split(":", 1)[1]) or 0
     medicines = await _recall(state)
@@ -448,7 +456,10 @@ async def handle_page(
         return
 
     city = await _current_city(_user_id(callback.from_user), users, config)
-    text, buttons = fmt.medicines_page(medicines, offset, cities.name(city))
+    text, buttons = fmt.medicines_page(
+        medicines, offset, cities.name(city),
+        counts=await _counts(client, stock_cache, medicines, offset, city),
+    )
     await callback.message.edit_text(
         text, reply_markup=medicines_keyboard(buttons, offset, len(medicines))
     )
@@ -581,6 +592,32 @@ async def _remember(state: FSMContext, medicines: Sequence[Medicine]) -> None:
         }
         for medicine in medicines
     ]})
+
+
+async def _counts(
+    client: Optional[MisClient],
+    stock_cache: Optional[StockCache],
+    medicines: Sequence[Medicine],
+    offset: int,
+    city: int,
+) -> Optional[Dict[str, int]]:
+    """Сколько аптек держит каждый препарат на показываемой странице.
+
+    Считаем только видимую страницу: это один запрос вместо десятков, а числа
+    для непоказанных строк всё равно никто не увидит.
+
+    Неудача здесь не должна ломать выдачу — без чисел список остаётся полезным,
+    поэтому при любой ошибке просто возвращаем None.
+    """
+    if client is None:
+        return None
+
+    page = list(medicines[offset:offset + fmt.MEDICINES_PER_PAGE])
+    try:
+        return await count_by_medicine(client, stock_cache, page, city=city)
+    except (MisUnavailable, ParseError) as exc:
+        log.warning("не посчитал наличие для страницы выдачи: %s", exc)
+        return None
 
 
 async def _generic_of(state: FSMContext, medicine_hash: str) -> str:

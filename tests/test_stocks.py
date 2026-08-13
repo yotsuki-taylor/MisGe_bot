@@ -7,9 +7,9 @@ from typing import List
 import pytest
 
 from misbot.mis_client import MisUnavailable
-from misbot.parser import ParseError
+from misbot.parser import ParseError, parse_pharmacies, parse_search
 from misbot.stock_cache import StockCache
-from misbot.stocks import find_stocks
+from misbot.stocks import count_by_medicine, find_stocks
 
 FIXTURES = Path(__file__).parent / "fixtures"
 PHARMACIES = (FIXTURES / "pharmacies_nurofen_tbilisi.html").read_text(encoding="utf-8")
@@ -94,6 +94,66 @@ class TestStockCache:
         assert await cache.get(HASH) is None
         await cache.put(HASH, PHARMACIES)
         assert await cache.count() == 0
+
+
+class TestCountByMedicine:
+    @staticmethod
+    def medicines():
+        return parse_search((FIXTURES / "search_nurofen.html").read_text(encoding="utf-8"))
+
+    async def test_counts_distinct_pharmacies(self, cache):
+        # Строк в фикстуре 11, но аптеки 334 и 406 отдают по две партии одного
+        # препарата. Считаем аптеки, а не строки: их 9.
+        [first] = [m for m in self.medicines() if m.hash == HASH]
+        counts = await count_by_medicine(FakeClient(), cache, [first], city=1)
+
+        assert counts[HASH] == 9
+        assert len(parse_pharmacies(PHARMACIES)) == 11, "строк действительно больше"
+
+    async def test_medicines_without_stock_get_zero(self, cache):
+        page = self.medicines()[:8]
+        counts = await count_by_medicine(FakeClient(), cache, page, city=1)
+
+        assert set(counts) == {m.hash for m in page}
+        assert counts[page[1].hash] == 0, "у этой формы выпуска наличия нет"
+
+    async def test_one_request_for_the_whole_page(self, cache):
+        client = FakeClient()
+        await count_by_medicine(client, cache, self.medicines()[:8], city=1)
+
+        assert len(client.calls) == 1
+        assert len(client.calls[0][0]) == 8
+
+    async def test_never_asks_for_more_than_the_site_accepts(self, cache):
+        client = FakeClient()
+        await count_by_medicine(client, cache, self.medicines(), city=1)
+
+        assert len(client.calls[0][0]) <= 13, "на 14-м хеше сайт молча отдаёт пустоту"
+
+    async def test_second_page_view_is_free(self, cache):
+        client = FakeClient()
+        page = self.medicines()[:8]
+        await count_by_medicine(client, cache, page, city=1)
+        await count_by_medicine(client, cache, page, city=1)
+
+        assert len(client.calls) == 1
+
+    async def test_another_city_is_counted_separately(self, cache):
+        client = FakeClient()
+        page = self.medicines()[:8]
+        await count_by_medicine(client, cache, page, city=1)
+        await count_by_medicine(client, cache, page, city=5)
+
+        assert len(client.calls) == 2
+
+    async def test_empty_page_asks_nothing(self, cache):
+        client = FakeClient()
+        assert await count_by_medicine(client, cache, [], city=1) == {}
+        assert client.calls == []
+
+    async def test_works_without_a_cache(self):
+        counts = await count_by_medicine(FakeClient(), None, self.medicines()[:2], city=1)
+        assert counts[HASH] == 9
 
 
 class TestFindStocks:

@@ -8,14 +8,62 @@
 from __future__ import annotations
 
 import logging
-from typing import List, Optional
+from collections import defaultdict
+from typing import Dict, List, Optional, Sequence, Set, Tuple
 
-from .mis_client import MisClient, MisUnavailable
-from .models import Stock
+from .mis_client import MAX_MEDICINES_PER_REQUEST, MisClient, MisUnavailable
+from .models import Medicine, Stock
 from .parser import parse_pharmacies
 from .stock_cache import StockCache
 
 log = logging.getLogger(__name__)
+
+
+async def count_by_medicine(
+    client: MisClient,
+    cache: Optional[StockCache],
+    medicines: Sequence[Medicine],
+    *,
+    city: int = 0,
+) -> Dict[str, int]:
+    """Сколько аптек держит каждый препарат. Ключ — хеш препарата.
+
+    Один POST на всю страницу выдачи: сайт принимает до 13 хешей за раз, а
+    показываем мы восемь.
+
+    Сопоставлять ответ с запросом приходится по тройке «название, страна,
+    компания»: строки наличия хеша препарата не содержат. Тройка различает даже
+    те случаи, когда у восьми препаратов одинаковое название и разнятся только
+    производитель и страна, — а это на mis.ge обычное дело.
+    """
+    wanted = [m for m in medicines if m.hash][:MAX_MEDICINES_PER_REQUEST]
+    if not wanted:
+        return {}
+
+    hashes = [m.hash for m in wanted]
+    key = "+".join(sorted(hashes))
+    where = {"city": city, "district": 0, "subdistrict": 0}
+
+    cached = await cache.get(key, **where) if cache is not None else None
+    if cached is not None and cached.fresh:
+        stocks = parse_pharmacies(cached.html)
+    else:
+        html = await client.pharmacies(hashes, **where)
+        stocks = parse_pharmacies(html)
+        if cache is not None:
+            await cache.put(key, html, **where)
+
+    pharmacies: Dict[Tuple[str, str, str], Set[object]] = defaultdict(set)
+    for stock in stocks:
+        identity = stock.pharmacy_id if stock.pharmacy_id is not None else stock.pharmacy_name
+        pharmacies[(stock.medicine_name, stock.country, stock.company)].add(identity)
+
+    return {
+        medicine.hash: len(
+            pharmacies.get((medicine.name, medicine.country, medicine.company), ())
+        )
+        for medicine in wanted
+    }
 
 
 async def find_stocks(

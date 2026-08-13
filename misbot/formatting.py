@@ -129,11 +129,20 @@ def busy() -> str:
     return "Ещё ищу предыдущий запрос, секунду…"
 
 
+def pharmacies_count(count: int) -> str:
+    """«в 1 аптеке», «в 2 аптеках», «в 21 аптеке» — и «нет в наличии» на ноль."""
+    if count <= 0:
+        return "нет в наличии"
+    word = "аптеке" if count % 10 == 1 and count % 100 != 11 else "аптеках"
+    return f"есть в {count} {word}"
+
+
 def medicines_page(
     medicines: Sequence[Medicine],
     offset: int,
     city_name: str,
     title: str = "",
+    counts: Optional[Dict[str, int]] = None,
 ) -> Tuple[str, List[Tuple[str, str]]]:
     """Страница выдачи: текст сообщения и подписи кнопок с хешами препаратов."""
     page = medicines[offset:offset + MEDICINES_PER_PAGE]
@@ -150,11 +159,14 @@ def medicines_page(
             translate_company(medicine.company),
             translate_country(medicine.country),
         ]
+        if _needs_prescription(medicine):
+            details.append("по рецепту")
         detail_line = " · ".join(escape(d) for d in details if d)
         if detail_line:
             lines.append(f"    <i>{detail_line}</i>")
-        if _needs_prescription(medicine):
-            lines.append("    <i>по рецепту</i>")
+
+        if counts is not None and medicine.hash in counts:
+            lines.append(f"    {pharmacies_count(counts[medicine.hash])}")
 
         buttons.append((str(number), medicine.hash))
 

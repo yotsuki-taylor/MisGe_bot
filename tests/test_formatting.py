@@ -72,6 +72,32 @@ class TestMedicinesPage:
         assert "таблетки в оболочке" in text
         assert "шемогарсули аби" not in text
 
+    def test_availability_is_shown_when_counted(self, medicines):
+        counts = {medicines[0].hash: 9, medicines[1].hash: 0}
+        text, _ = fmt.medicines_page(medicines, 0, "Тбилиси", counts=counts)
+
+        assert "есть в 9 аптеках" in text
+        assert "нет в наличии" in text
+
+    def test_without_counts_the_line_is_absent(self, medicines):
+        text, _ = fmt.medicines_page(medicines, 0, "Тбилиси")
+        assert "аптеках" not in text
+
+    @pytest.mark.parametrize(
+        "count, expected",
+        [
+            (0, "нет в наличии"),
+            (1, "есть в 1 аптеке"),
+            (2, "есть в 2 аптеках"),
+            (5, "есть в 5 аптеках"),
+            (11, "есть в 11 аптеках"),
+            (21, "есть в 21 аптеке"),
+            (111, "есть в 111 аптеках"),
+        ],
+    )
+    def test_pharmacy_count_is_declined(self, count, expected):
+        assert fmt.pharmacies_count(count) == expected
+
     def test_pack_size_is_readable(self, medicines):
         text, _ = fmt.medicines_page(medicines, 0, "Тбилиси")
         assert "16 шт." in text
