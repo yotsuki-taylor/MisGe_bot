@@ -128,6 +128,16 @@ class MisClient:
             data[h] = "on"
         return await self._request("POST", PHARMACIES_PATH, data=data)
 
+    async def generic_card(self, generic_hash: str) -> str:
+        """Карточка действующего вещества: латинское название и АТХ-классификация."""
+        return await self._request("GET", f"/mis_generiki.mis?{generic_hash}=g")
+
+    async def medicines_by_generic(self, latin_name: str) -> str:
+        """Все препараты с этим действующим веществом — то есть аналоги."""
+        return await self._request(
+            "GET", "/mis_genmed.mis", params={"g": latin_name}
+        )
+
     async def pharmacy_card(self, pharmacy_id: int) -> str:
         """Карточка аптеки: адрес, часы работы, телефон, точка на карте."""
         return await self._request("GET", f"/mis_aftiaqi.mis?{pharmacy_id}=a")

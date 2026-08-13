@@ -31,6 +31,7 @@ from aiogram.types import (
 from . import formatting as fmt
 from . import stats as counters
 from .alerts import Alerter
+from .analogues import find_analogues
 from .cache import PharmacyCache
 from .config import Config, ConfigError
 from .locations import EVERYWHERE, CityDirectory
@@ -57,6 +58,7 @@ CITY_PREFIX = "c"
 PAGE_PREFIX = "p"
 WATCH_PREFIX = "w"
 UNWATCH_PREFIX = "u"
+ANALOGUE_PREFIX = "a"
 
 CITY_COLUMNS = 2
 
@@ -100,13 +102,30 @@ def medicines_keyboard(buttons: Sequence, offset: int, total: int) -> InlineKeyb
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def watch_keyboard(medicine_hash: str, city: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(
+def stock_keyboard(
+    medicine_hash: str,
+    city: int,
+    *,
+    watching: bool,
+    generic_hash: str = "",
+) -> Optional[InlineKeyboardMarkup]:
+    """Кнопки под списком аптек: следить и посмотреть аналоги."""
+    rows: List[List[InlineKeyboardButton]] = []
+
+    if watching:
+        rows.append([InlineKeyboardButton(
             text="🔔 Следить за препаратом",
             callback_data=f"{WATCH_PREFIX}:{medicine_hash}:{city}",
-        )
-    ]])
+        )])
+    if generic_hash:
+        # Не «подешевле»: список не отсортирован по цене и не проверен на
+        # наличие, обещать выгоду нечестно.
+        rows.append([InlineKeyboardButton(
+            text="🧬 Тот же состав",
+            callback_data=f"{ANALOGUE_PREFIX}:{generic_hash}",
+        )])
+
+    return InlineKeyboardMarkup(inline_keyboard=rows) if rows else None
 
 
 def watches_keyboard(watches: Sequence) -> InlineKeyboardMarkup:
@@ -253,6 +272,61 @@ async def handle_unwatch(
     await callback.message.edit_text(
         fmt.watch_list(mine, cities.name),
         reply_markup=watches_keyboard(mine) if mine else None,
+    )
+
+
+async def handle_analogues(
+    callback: CallbackQuery,
+    state: FSMContext,
+    client: MisClient,
+    cities: CityDirectory,
+    config: Config,
+    users: Optional[UserStore] = None,
+    alerts: Optional[Alerter] = None,
+) -> None:
+    """Препараты с тем же действующим веществом.
+
+    Дальше работает обычная выдача поиска: те же кнопки, то же листание, и по
+    нажатию на аналог сразу видно его цены в аптеках.
+    """
+    generic_hash = callback.data.split(":", 1)[1]
+    user_id = _user_id(callback.from_user)
+
+    if user_id in _busy:
+        await callback.answer(fmt.busy())
+        return
+    await callback.answer()
+
+    if callback.message is None:
+        return
+
+    _busy.add(user_id)
+    try:
+        generic, medicines = await find_analogues(client, generic_hash)
+    except MisUnavailable:
+        await callback.message.answer(fmt.site_unavailable())
+        return
+    except ParseError as exc:
+        log.error("парсер сломался на списке аналогов: %s", exc)
+        if alerts is not None:
+            await alerts.parser_broken("список аналогов", str(exc))
+        await callback.message.answer(fmt.analogues_unavailable())
+        return
+    finally:
+        _busy.discard(user_id)
+
+    if not medicines:
+        await callback.message.answer(fmt.no_analogues())
+        return
+
+    await _remember(state, medicines)
+    city = await _current_city(user_id, users, config)
+    text, buttons = fmt.medicines_page(
+        medicines, 0, cities.name(city),
+        title=fmt.analogues_title(generic, len(medicines)),
+    )
+    await callback.message.answer(
+        text, reply_markup=medicines_keyboard(buttons, 0, len(medicines))
     )
 
 
@@ -420,9 +494,13 @@ async def handle_medicine_chosen(
 
     await _answer_with_addresses(
         callback.message, stocks, cities.name(city), client, cache,
-        # Кнопка «следить» нужна и когда препарата нет: как раз тогда за ним
-        # и хочется следить.
-        watch=watch_keyboard(medicine_hash, city) if watches is not None else None,
+        # Кнопки нужны и когда препарата нет: как раз тогда и хочется
+        # подписаться или поискать аналог.
+        buttons=stock_keyboard(
+            medicine_hash, city,
+            watching=watches is not None,
+            generic_hash=await _generic_of(state, medicine_hash),
+        ),
     )
 
 
@@ -432,7 +510,7 @@ async def _answer_with_addresses(
     city_name: str,
     client: MisClient,
     cache: Optional[PharmacyCache],
-    watch: Optional[InlineKeyboardMarkup] = None,
+    buttons: Optional[InlineKeyboardMarkup] = None,
 ) -> None:
     """Сначала цены, потом адреса.
 
@@ -448,7 +526,7 @@ async def _answer_with_addresses(
     sent = await message.answer(
         fmt.stocks_message(stocks, city_name, cached),
         disable_web_page_preview=True,
-        reply_markup=watch,
+        reply_markup=buttons,
     )
 
     if not wanted or cached_only(cached, wanted):
@@ -462,7 +540,7 @@ async def _answer_with_addresses(
         await sent.edit_text(
             fmt.stocks_message(stocks, city_name, resolved),
             disable_web_page_preview=True,
-            reply_markup=watch,
+            reply_markup=buttons,
         )
     except TelegramBadRequest:
         # Текст не изменился или сообщение уже недоступно — не повод падать.
@@ -493,9 +571,24 @@ async def _remember(state: FSMContext, medicines: Sequence[Medicine]) -> None:
             "company": medicine.company,
             "country": medicine.country,
             "dispensing": medicine.dispensing,
+            "generic_hash": medicine.generic_hash or "",
         }
         for medicine in medicines
     ]})
+
+
+async def _generic_of(state: FSMContext, medicine_hash: str) -> str:
+    """Хеш действующего вещества для препарата из последней выдачи.
+
+    Пустая строка — выдача уже забылась; тогда кнопки «аналоги» просто не будет.
+    Само нажатие потом работает и на старых сообщениях: хеш вещества уезжает в
+    callback_data, состояние для него не нужно.
+    """
+    data = await state.get_data()
+    for row in data.get(RESULTS_KEY, []):
+        if row.get("hash") == medicine_hash:
+            return row.get("generic_hash") or ""
+    return ""
 
 
 async def _recall(state: FSMContext) -> List[Medicine]:
@@ -505,7 +598,7 @@ async def _recall(state: FSMContext) -> List[Medicine]:
             hash=row["hash"],
             name=row["name"],
             generic="",
-            generic_hash=None,
+            generic_hash=row.get("generic_hash") or None,
             country=row["country"],
             company=row["company"],
             registration="",
@@ -551,6 +644,7 @@ def build_router() -> Router:
     router.callback_query.register(handle_page, F.data.startswith(f"{PAGE_PREFIX}:"))
     router.callback_query.register(handle_watch, F.data.startswith(f"{WATCH_PREFIX}:"))
     router.callback_query.register(handle_unwatch, F.data.startswith(f"{UNWATCH_PREFIX}:"))
+    router.callback_query.register(handle_analogues, F.data.startswith(f"{ANALOGUE_PREFIX}:"))
     router.callback_query.register(
         handle_medicine_chosen, F.data.startswith(f"{MEDICINE_PREFIX}:")
     )

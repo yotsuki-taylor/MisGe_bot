@@ -12,6 +12,7 @@ import re
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import List, Optional
+from urllib.parse import unquote
 
 from selectolax.parser import HTMLParser, Node
 
@@ -185,6 +186,21 @@ def parse_pharmacy_card(html: str, pharmacy_id: int) -> Pharmacy:
     if not (pharmacy.address or pharmacy.legal_name or pharmacy.brand):
         raise ParseError(f"карточка аптеки {pharmacy_id}: все поля пустые")
     return pharmacy
+
+
+_GENMED_RE = re.compile(r"mis_genmed\.mis\?g=([^\"'&]+)")
+
+
+def parse_generic_name(html: str) -> str:
+    """Латинское название действующего вещества из карточки МНН.
+
+    Берём не текст ссылки, а параметр из её адреса: именно эту строку ждёт
+    ручка `mis_genmed.mis`, и она уже в нужном регистре и написании.
+    """
+    match = _GENMED_RE.search(html)
+    if match is None:
+        raise ParseError("в карточке действующего вещества нет ссылки на список препаратов")
+    return unquote(match.group(1)).replace("+", " ").strip()
 
 
 def parse_locations(html: str) -> Locations:

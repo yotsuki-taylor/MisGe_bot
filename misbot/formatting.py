@@ -133,11 +133,13 @@ def medicines_page(
     medicines: Sequence[Medicine],
     offset: int,
     city_name: str,
+    title: str = "",
 ) -> Tuple[str, List[Tuple[str, str]]]:
     """Страница выдачи: текст сообщения и подписи кнопок с хешами препаратов."""
     page = medicines[offset:offset + MEDICINES_PER_PAGE]
 
-    lines = [f"Нашлось: <b>{len(medicines)}</b>. Показываю город: <b>{escape(city_name)}</b>.", ""]
+    headline = title or f"Нашлось: <b>{len(medicines)}</b>."
+    lines = [f"{headline} Показываю город: <b>{escape(city_name)}</b>.", ""]
     buttons: List[Tuple[str, str]] = []
 
     for number, medicine in enumerate(page, start=offset + 1):
@@ -298,6 +300,21 @@ def strip_area(address: str, stock: Stock) -> str:
 
 def city_chosen(city_name: str) -> str:
     return f"Город: <b>{escape(city_name)}</b>. Напишите название препарата."
+
+
+def analogues_title(generic: str, total: int) -> str:
+    return (
+        f"🧬 Аналоги: то же действующее вещество, <b>{escape(generic)}</b>. "
+        f"Нашлось: <b>{total}</b>."
+    )
+
+
+def no_analogues() -> str:
+    return "Других препаратов с тем же действующим веществом не нашлось."
+
+
+def analogues_unavailable() -> str:
+    return "Не смог получить список аналогов. Попробуйте ещё раз чуть позже."
 
 
 def watch_added(medicine_name: str, city_name: str) -> str:

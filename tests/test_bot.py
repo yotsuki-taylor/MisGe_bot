@@ -15,6 +15,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 
 from misbot import formatting as fmt
 from misbot.bot import (
+    ANALOGUE_PREFIX,
     CITY_PREFIX,
     MEDICINE_PREFIX,
     PAGE_PREFIX,
@@ -26,6 +27,7 @@ from misbot.bot import (
     _recall,
     _remember,
     cities_keyboard,
+    handle_analogues,
     handle_city_chosen,
     handle_medicine_chosen,
     handle_page,
@@ -86,6 +88,8 @@ class FakeCallback:
 
 
 CARD = (FIXTURES / "pharmacy_card_334.html").read_text(encoding="utf-8")
+GENERIC_CARD = (FIXTURES / "generic_card_ibuprofen.html").read_text(encoding="utf-8")
+GENERIC_LIST = (FIXTURES / "generic_medicines_ibuprofen.html").read_text(encoding="utf-8")
 
 
 class FakeClient:
@@ -97,6 +101,14 @@ class FakeClient:
         self.pharmacy_calls: List[tuple] = []
         self.card_calls: List[int] = []
         self.fail_with: Dict[str, Exception] = {}
+
+    async def generic_card(self, generic_hash: str) -> str:
+        if "generic" in self.fail_with:
+            raise self.fail_with["generic"]
+        return GENERIC_CARD
+
+    async def medicines_by_generic(self, latin_name: str) -> str:
+        return GENERIC_LIST
 
     async def pharmacy_card(self, pharmacy_id: int) -> str:
         self.card_calls.append(pharmacy_id)
@@ -442,6 +454,72 @@ class TestWatching:
 
         assert await watches.count() == 0
         assert "Пока ни за чем не слежу" in callback.message.text
+
+
+class TestAnalogues:
+    async def test_button_appears_when_the_generic_is_known(self, state, cities, config):
+        await _remember(state, parse_search(FOUND))
+        medicine = parse_search(FOUND)[0]
+        callback = FakeCallback(f"{MEDICINE_PREFIX}:{medicine.hash}")
+
+        await handle_medicine_chosen(callback, state, FakeClient(), cities, config)
+        labels = [
+            button.text
+            for row in callback.message.replies[0].markup.inline_keyboard
+            for button in row
+        ]
+        assert any("Тот же состав" in label for label in labels)
+
+    async def test_no_button_when_the_search_is_forgotten(self, state, cities, config):
+        # Выдача не сохранена — хеш вещества взять неоткуда.
+        callback = FakeCallback(f"{MEDICINE_PREFIX}:{'A' * 32}")
+        await handle_medicine_chosen(callback, state, FakeClient(), cities, config)
+
+        markup = callback.message.replies[0].markup
+        labels = [b.text for row in (markup.inline_keyboard if markup else []) for b in row]
+        assert not any("Аналоги" in label for label in labels)
+
+    async def test_callback_data_fits_the_telegram_limit(self, state, cities, config):
+        await _remember(state, parse_search(FOUND))
+        medicine = parse_search(FOUND)[0]
+        callback = FakeCallback(f"{MEDICINE_PREFIX}:{medicine.hash}")
+
+        await handle_medicine_chosen(callback, state, FakeClient(), cities, config)
+        for row in callback.message.replies[0].markup.inline_keyboard:
+            for button in row:
+                assert len(button.callback_data.encode()) <= 64
+
+    async def test_shows_the_analogue_list(self, state, cities, config):
+        callback = FakeCallback(f"{ANALOGUE_PREFIX}:{'B' * 32}")
+        await handle_analogues(callback, state, FakeClient(), cities, config)
+
+        answer = callback.message.replies[0]
+        assert "Аналоги" in answer.text
+        assert "Ibuprofen" in answer.text
+        assert answer.markup is not None
+
+    async def test_analogues_become_the_list_you_can_page(self, state, cities, config):
+        callback = FakeCallback(f"{ANALOGUE_PREFIX}:{'B' * 32}")
+        await handle_analogues(callback, state, FakeClient(), cities, config)
+
+        # Листание работает по сохранённой выдаче — теперь это аналоги.
+        assert len(await _recall(state)) == 208
+
+    async def test_site_failure_is_reported_softly(self, state, cities, config):
+        client = FakeClient()
+        client.fail_with["generic"] = MisUnavailable("нет связи")
+        callback = FakeCallback(f"{ANALOGUE_PREFIX}:{'B' * 32}")
+
+        await handle_analogues(callback, state, client, cities, config)
+        assert callback.message.replies[0].text == fmt.site_unavailable()
+
+    async def test_lock_is_released_after_a_failure(self, state, cities, config):
+        client = FakeClient()
+        client.fail_with["generic"] = MisUnavailable("нет связи")
+        await handle_analogues(
+            FakeCallback(f"{ANALOGUE_PREFIX}:{'B' * 32}"), state, client, cities, config
+        )
+        assert 1 not in _busy
 
 
 class TestKeyboards:
