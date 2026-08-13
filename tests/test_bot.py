@@ -267,6 +267,21 @@ class TestMedicineChosen:
 
         assert len(client.card_calls) == first_run, "второй раз карточки не перезапрашиваем"
 
+    async def test_stocks_are_taken_from_the_cache_on_the_second_tap(
+        self, state, cities, config, tmp_path
+    ):
+        from misbot.stock_cache import StockCache
+
+        client = FakeClient()
+        async with StockCache(tmp_path / "stocks.sqlite3") as stock_cache:
+            for _ in range(2):
+                await handle_medicine_chosen(
+                    FakeCallback(f"{MEDICINE_PREFIX}:{'A' * 32}"),
+                    state, client, cities, config, stock_cache=stock_cache,
+                )
+
+        assert len(client.pharmacy_calls) == 1, "второй раз к сайту ходить не должны"
+
     async def test_works_without_a_cache(self, state, cities, config):
         callback = FakeCallback(f"{MEDICINE_PREFIX}:{'A' * 32}")
         await handle_medicine_chosen(callback, state, FakeClient(), cities, config, None)

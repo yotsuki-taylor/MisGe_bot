@@ -36,10 +36,12 @@ from .config import Config, ConfigError
 from .locations import EVERYWHERE, CityDirectory
 from .mis_client import MisClient, MisUnavailable
 from .models import Medicine
-from .parser import ParseError, QueryTooShort, parse_pharmacies
+from .parser import ParseError, QueryTooShort
 from .pharmacies import cached_only, resolve
 from .search import find_medicines
 from .stats import Stats, count
+from .stock_cache import StockCache
+from .stocks import find_stocks
 from .user_store import UserStore
 
 log = logging.getLogger(__name__)
@@ -275,6 +277,7 @@ async def handle_medicine_chosen(
     stats: Optional[Stats] = None,
     users: Optional[UserStore] = None,
     alerts: Optional[Alerter] = None,
+    stock_cache: Optional[StockCache] = None,
 ) -> None:
     medicine_hash = callback.data.split(":", 1)[1]
     user_id = _user_id(callback.from_user)
@@ -290,7 +293,7 @@ async def handle_medicine_chosen(
     city = await _current_city(user_id, users, config)
     _busy.add(user_id)
     try:
-        stocks = parse_pharmacies(await client.pharmacies([medicine_hash], city=city))
+        stocks = await find_stocks(client, stock_cache, medicine_hash, city=city)
     except MisUnavailable:
         await count(stats, counters.UNAVAILABLE)
         await callback.message.answer(fmt.site_unavailable())
@@ -457,13 +460,19 @@ async def run(config: Config) -> None:
 
     async with MisClient(contact=config.contact) as client:
         async with PharmacyCache(config.database) as cache:
-            async with Stats(config.database) as stats, UserStore(config.database) as users:
+            async with Stats(config.database) as stats, \
+                    UserStore(config.database) as users, \
+                    StockCache(config.database) as stock_cache:
                 cities = await CityDirectory.load(client)
+                dropped = await stock_cache.prune()
                 log.info(
                     "бот запускается, город по умолчанию: %s, карточек аптек в кеше: %d, "
+                    "остатков в кеше: %d (выброшено протухших: %d), "
                     "пользователей: %d, владелец: %s",
                     cities.name(config.default_city),
                     await cache.count(),
+                    await stock_cache.count(),
+                    dropped,
                     await users.count(),
                     f"{config.admin_id} (/stats и алерты)" if config.admin_id
                     else "не задан, /stats и алерты выключены",
@@ -478,6 +487,7 @@ async def run(config: Config) -> None:
                         stats=stats,
                         users=users,
                         alerts=alerts,
+                        stock_cache=stock_cache,
                     )
                 finally:
                     await bot.session.close()

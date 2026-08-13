@@ -15,12 +15,13 @@ from aiogram.client.session.base import BaseSession
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.methods import AnswerCallbackQuery, EditMessageText, SendMessage, TelegramMethod
-from aiogram.types import Chat, Message, Update, User
+from aiogram.types import CallbackQuery, Chat, Message, Update, User
 
 from misbot.alerts import Alerter
 from misbot.bot import build_dispatcher
 from misbot.config import Config
 from misbot.locations import FALLBACK_CITIES, CityDirectory
+from misbot.stock_cache import StockCache
 from misbot.user_store import UserStore
 
 from test_bot import FakeClient  # noqa: E402
@@ -97,6 +98,25 @@ def message_update(text: str, update_id: int = 1) -> Update:
             chat=CHAT,
             from_user=USER,
             text=text,
+        ),
+    )
+
+
+def callback_update(data: str, update_id: int = 1) -> Update:
+    return Update(
+        update_id=update_id,
+        callback_query=CallbackQuery(
+            id=str(update_id),
+            from_user=USER,
+            chat_instance="test",
+            data=data,
+            message=Message(
+                message_id=update_id,
+                date=datetime.now(),
+                chat=CHAT,
+                from_user=USER,
+                text="выдача",
+            ),
         ),
     )
 
@@ -179,6 +199,21 @@ class TestWiring:
         sent = [r for r in session.requests if isinstance(r, SendMessage)]
         assert any(r.chat_id == 777 for r in sent), "админу о поломке не написали"
         assert any("Не разобрался в ответе" in (r.text or "") for r in sent)
+
+    async def test_stock_cache_reaches_the_handler(self, bot, dispatcher, session, tmp_path):
+        client = FakeClient()
+        async with StockCache(tmp_path / "wiring-stocks.sqlite3") as stock_cache:
+            for _ in range(2):
+                await dispatcher.feed_update(
+                    bot,
+                    callback_update(f"m:{'A' * 32}"),
+                    client=client,
+                    cities=CityDirectory(dict(FALLBACK_CITIES)),
+                    config=Config(token=FAKE_TOKEN, default_city=1),
+                    stock_cache=stock_cache,
+                )
+
+        assert len(client.pharmacy_calls) == 1, "кеш до хендлера не доехал"
 
     async def test_id_command_reports_the_chat(self, bot, dispatcher, session):
         await dispatcher.feed_update(
