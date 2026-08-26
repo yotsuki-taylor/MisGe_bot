@@ -11,7 +11,9 @@ from misbot.translit import (
     is_georgian,
     is_latin,
     ka_to_latin,
+    ka_to_latin_candidates,
     ka_to_ru,
+    strip_ka_ending,
     ru_to_latin,
     ru_to_latin_candidates,
     shorten,
@@ -175,3 +177,56 @@ class TestShorten:
     def test_never_goes_below_the_site_minimum(self):
         assert len(shorten("abc")) == 3
         assert len(shorten("abcd")) == 3
+
+
+class TestKaToLatinCandidates:
+    @pytest.mark.parametrize(
+        "georgian, expected",
+        [
+            ("ნუროფენი", "nurofen"),
+            ("ასპირინი", "aspirin"),
+            ("იბუპროფენი", "ibuprofen"),
+            ("ცეტირიზინი", "cetirizin"),
+            ("ციტრამონი", "citramon"),
+            ("დიკლოფენაკი", "diclofenac"),
+            ("პარაცეტამოლი", "paracetamol"),
+        ],
+    )
+    def test_the_first_guess_is_the_international_spelling(self, georgian, expected):
+        assert ka_to_latin_candidates(georgian)[0] == expected
+
+    def test_f_is_not_the_signpost_p(self):
+        # ka_to_latin (для вывесок) даёт «nuropeni» — сайту такое не найти.
+        assert ka_to_latin("ნუროფენი") == "Nuropeni"
+        assert ka_to_latin_candidates("ნუროფენი")[0] == "nurofen"
+
+    def test_candidates_are_ranked_and_unique(self):
+        candidates = ka_to_latin_candidates("ნუროფენი")
+        assert len(candidates) == len(set(candidates))
+        assert candidates.index("nurofen") < candidates.index("nuropen")
+
+    def test_limit_is_respected(self):
+        assert len(ka_to_latin_candidates("ცეტირიზინი", limit=3)) == 3
+
+    def test_empty(self):
+        assert ka_to_latin_candidates("") == []
+
+    def test_digits_and_latin_pass_through(self):
+        assert ka_to_latin_candidates("ვიტამინი c")[0] == "vitamin c"
+
+
+class TestStripKaEnding:
+    @pytest.mark.parametrize(
+        "word, stripped",
+        [
+            ("ნუროფენი", "ნუროფენ"),
+            ("ვარფარინის", "ვარფარინ"),
+            ("ნუროფენ", "ნუროფენ"),
+        ],
+    )
+    def test_case_endings_go(self, word, stripped):
+        assert strip_ka_ending(word) == stripped
+
+    def test_short_words_are_left_alone(self):
+        # «აბი» — целое слово, а не основа с окончанием.
+        assert strip_ka_ending("აბი") == "აბი"

@@ -7,6 +7,7 @@ import pytest
 
 from misbot.parser import QueryTooShort
 from misbot.search import AS_IS, BRAND, INN, PREFIX, TRANSLIT, find_medicines
+from misbot.translit import is_georgian
 
 FIXTURES = Path(__file__).parent / "fixtures"
 FOUND = (FIXTURES / "search_nurofen.html").read_text(encoding="utf-8")
@@ -38,11 +39,39 @@ class TestFindMedicines:
         assert outcome.strategy == AS_IS
         assert client.queries == ["nurofen"]
 
-    async def test_georgian_goes_as_is(self):
-        client = FakeClient({"ნუროფენი": FOUND})
+    async def test_georgian_is_transliterated_too(self):
+        # Сайт грузинский, но ищет по международному написанию: «ნუროფენი»
+        # не находит ничего, а `nurofen` находит.
+        client = FakeClient({"nurofen": FOUND})
         outcome = await find_medicines(client, "ნუროფენი")
-        assert outcome.strategy == AS_IS
-        assert client.queries == ["ნუროფენი"]
+        assert outcome.found
+        assert outcome.strategy == TRANSLIT
+        assert client.queries == ["nurofen"]
+
+    async def test_georgian_spelling_is_never_asked(self):
+        client = FakeClient({})
+        await find_medicines(client, "ნუროფენი")
+        assert all(not is_georgian(query) for query in client.queries)
+
+    async def test_georgian_case_endings_are_dropped(self):
+        # «-ი» — падежное окончание, в базе сайта его нет.
+        client = FakeClient({"aspirin": FOUND})
+        outcome = await find_medicines(client, "ასპირინი")
+        assert outcome.found
+        assert client.queries[0] == "aspirin"
+
+    async def test_georgian_falls_back_to_a_prefix(self):
+        client = FakeClient({"cetir": FOUND})
+        outcome = await find_medicines(client, "ცეტირიზინი")
+        assert outcome.found
+        assert outcome.strategy == PREFIX
+
+    async def test_known_brands_work_in_georgian_too(self):
+        client = FakeClient({"zyrtec": FOUND})
+        outcome = await find_medicines(client, "ზირტეკი")
+        assert outcome.found
+        assert outcome.strategy == BRAND
+        assert client.queries == ["zyrtec"]
 
     async def test_cyrillic_is_transliterated(self):
         client = FakeClient({"nurofen": FOUND})

@@ -18,6 +18,7 @@ from .translit import (
     MIN_QUERY_LENGTH,
     is_cyrillic,
     is_georgian,
+    ka_to_latin_candidates,
     ru_to_latin_candidates,
     shorten,
 )
@@ -92,31 +93,53 @@ async def find_medicines(
 
 def _plan(text: str, max_attempts: int) -> List[Tuple[str, str, bool]]:
     """Что спрашивать у сайта и в каком порядке."""
-    if is_georgian(text) or not is_cyrillic(text):
-        # Грузиница и латиница уходят как есть, подбирать нечего.
+    if is_georgian(text):
+        # Грузиницу тоже надо переводить в латиницу: сайт грузинский, а ищет по
+        # международному написанию, и «ნუროფენი» не находит ничего. Само
+        # грузинское написание не пробуем вовсе — это заведомо пустой запрос.
+        return _known_first(text) + _from_candidates(
+            ka_to_latin_candidates(text, limit=max(1, max_attempts - 3))
+        )
+
+    if not is_cyrillic(text):
+        # Латиница уходит как есть: она и так то, что сайт хранит.
         return [
             (text, AS_IS, False),
             (shorten(text), PREFIX, False),
             (text, INN, True),
         ]
 
-    plan: List[Tuple[str, str, bool]] = []
-
-    # Что знаем наверняка — спрашиваем первым: подбор по буквам до правильного
-    # написания добирается пятой попыткой, а это пять секунд ожидания.
-    known = brands.lookup(text)
-    if known is not None:
-        plan.extend((name, BRAND, False) for name in known.names)
-        if known.generic:
-            # Бренда может не быть в аптеках — тогда по МНН найдутся аналоги.
-            plan.append((known.generic, INN, True))
-
     # Три обращения придерживаем на обрубленные префиксы и на поиск по МНН.
-    candidates = ru_to_latin_candidates(text, limit=max(1, max_attempts - 3))
-    plan.extend((c, TRANSLIT, False) for c in candidates)
+    return _known_first(text) + _from_candidates(
+        ru_to_latin_candidates(text, limit=max(1, max_attempts - 3))
+    )
 
-    # Хвост русского названия часто расходится с латинским («цефтриаксон» →
-    # ceftriaxone), а поиск идёт по началу строки — обрубаем и пробуем снова.
+
+def _known_first(text: str) -> List[Tuple[str, str, bool]]:
+    """Что знаем про препарат наверняка — спрашиваем прежде подбора по буквам.
+
+    Подбор до правильного написания добирается пятой попыткой, а это пять секунд
+    ожидания при лимите в запрос в секунду.
+    """
+    known = brands.lookup(text)
+    if known is None:
+        return []
+
+    plan: List[Tuple[str, str, bool]] = [(name, BRAND, False) for name in known.names]
+    if known.generic:
+        # Бренда может не быть в аптеках — тогда по МНН найдутся аналоги.
+        plan.append((known.generic, INN, True))
+    return plan
+
+
+def _from_candidates(candidates: List[str]) -> List[Tuple[str, str, bool]]:
+    """Подобранные написания, следом обрубленные префиксы, последним — МНН.
+
+    Хвост названия часто расходится с латинским («цефтриаксон» → ceftriaxone,
+    «ცეტირიზინი» → cetirizine), а поиск идёт по началу строки, так что обрубок
+    находит то, чего не нашло целое слово.
+    """
+    plan: List[Tuple[str, str, bool]] = [(c, TRANSLIT, False) for c in candidates]
     plan.extend((shorten(c), PREFIX, False) for c in candidates[:2])
     if candidates:
         plan.append((candidates[0], INN, True))

@@ -41,6 +41,9 @@ class Brand:
 KNOWN: Dict[str, Brand] = {
     # Zyrtec: «и» здесь пишется через y, чего побуквенный подбор не ждёт.
     "зиртек": Brand(names=("zyrtec",), generic="cetirizin"),
+    # То же название по-грузински: ключи ведём для каждого алфавита, на котором
+    # препарат могут спросить, — подбор промахивается одинаково с обоих.
+    "ზირტეკი": Brand(names=("zyrtec",), generic="cetirizin"),
 }
 
 _SPACES = re.compile(r"\s+")
