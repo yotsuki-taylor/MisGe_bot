@@ -79,12 +79,15 @@ jobs:
         env:
           MISGE_BOT_TOKEN: ${{ secrets.MISGE_BOT_TOKEN }}
           MISGE_ADMIN_ID: ${{ secrets.MISGE_ADMIN_ID }}
+          MISGE_DEFAULT_CITY: ${{ vars.MISGE_DEFAULT_CITY }}
         run: |
           test -n "$MISGE_BOT_TOKEN"
           umask 077
           {
             printf 'MISGE_BOT_TOKEN=%s\n' "$MISGE_BOT_TOKEN"
             printf 'MISGE_LOG_LEVEL=INFO\n'
+            # 0 («вся Грузия») сайт не обслуживает, поэтому по умолчанию Тбилиси.
+            printf 'MISGE_DEFAULT_CITY=%s\n' "${MISGE_DEFAULT_CITY:-1}"
             # Секрета может не быть — тогда /stats просто молчит, деплою всё равно.
             if [ -n "$MISGE_ADMIN_ID" ]; then
               printf 'MISGE_ADMIN_ID=%s\n' "$MISGE_ADMIN_ID"

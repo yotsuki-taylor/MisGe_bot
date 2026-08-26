@@ -31,8 +31,12 @@ class ConfigError(RuntimeError):
 class Config:
     token: str
     contact: str = DEFAULT_CONTACT
-    default_city: int = 0
-    """Город, который предлагается новому пользователю. 0 — вся Грузия."""
+    default_city: int = 1
+    """Город, который предлагается новому пользователю. 1 — Тбилиси.
+
+    Не 0: поиск «по всей Грузии» сайт не обслуживает — отдаёт пустую выдачу,
+    и новый пользователь упирался бы в «нигде нет» на любой запрос.
+    """
 
     log_level: str = "INFO"
     """На INFO пользовательские запросы в лог не попадают, см. privacy в README."""
@@ -65,7 +69,7 @@ class Config:
         return cls(
             token=token,
             contact=os.environ.get(CONTACT_VAR, DEFAULT_CONTACT).strip() or DEFAULT_CONTACT,
-            default_city=_int(os.environ.get(CITY_VAR), default=0),
+            default_city=_int(os.environ.get(CITY_VAR), default=1),
             log_level=os.environ.get(LOG_VAR, "INFO").strip().upper() or "INFO",
             database=Path(os.environ.get(DB_VAR, "").strip() or DEFAULT_DB),
             log_file=_log_file(os.environ.get(LOG_FILE_VAR)),

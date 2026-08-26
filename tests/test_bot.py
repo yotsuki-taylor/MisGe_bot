@@ -364,9 +364,11 @@ class TestCity:
         assert await _current_city(1, users, config) == config.default_city
         assert callback.answered == ["Такого города не знаю"]
 
-    async def test_everywhere_is_a_valid_choice(self, cities, config, users):
+    async def test_a_saved_everywhere_falls_back_to_the_default(self, cities, config, users):
+        # Ноль мог остаться в базе с тех пор, когда кнопка «Вся Грузия» ещё была,
+        # или прилететь со старого сообщения. Поиск по нему сайт не обслуживает.
         await handle_city_chosen(FakeCallback(f"{CITY_PREFIX}:{EVERYWHERE}"), cities, users)
-        assert await _current_city(1, users, config) == EVERYWHERE
+        assert await _current_city(1, users, config) == config.default_city
 
     async def test_default_city_applies_until_chosen(self, config, users):
         assert await _current_city(1, users, config) == 1
@@ -622,15 +624,20 @@ class TestKeyboards:
             for button in row:
                 assert len(button.callback_data.encode()) <= 64
 
-    def test_city_keyboard_starts_with_everywhere_and_tbilisi(self, cities):
+    def test_city_keyboard_starts_with_tbilisi(self, cities):
         keyboard = cities_keyboard(cities)
-        assert keyboard.inline_keyboard[0][0].text == "Вся Грузия"
-        assert keyboard.inline_keyboard[1][0].text == "Тбилиси"
+        assert keyboard.inline_keyboard[0][0].text == "Тбилиси"
 
     def test_city_keyboard_lists_every_city(self, cities):
         keyboard = cities_keyboard(cities)
         buttons = [b for row in keyboard.inline_keyboard for b in row]
-        assert len(buttons) == len(FALLBACK_CITIES) + 1
+        assert len(buttons) == len(FALLBACK_CITIES)
+
+    def test_city_keyboard_does_not_offer_the_whole_country(self, cities):
+        # Сайт на запрос без города отдаёт пустую выдачу — предлагать нечестно.
+        keyboard = cities_keyboard(cities)
+        targets = [b.callback_data for row in keyboard.inline_keyboard for b in row]
+        assert f"{CITY_PREFIX}:{EVERYWHERE}" not in targets
 
 
 class TestStatsCommand:
@@ -695,3 +702,60 @@ class TestStatsCommand:
         message = FakeMessage("нурофен")
         await handle_query(message, state, FakeClient(), cities, config)
         assert "Нашлось" in message.replies[0].text
+
+
+class TestWholeCountry:
+    """Поиск без города сайт не обслуживает — бот не должен врать «нигде нет»."""
+
+    @pytest.fixture
+    def everywhere(self) -> Config:
+        return Config(token="test", default_city=EVERYWHERE)
+
+    async def test_empty_answer_offers_the_city_keyboard(self, state, cities, everywhere):
+        medicines = parse_search(FOUND)
+        await _remember(state, medicines)
+        callback = FakeCallback(f"{MEDICINE_PREFIX}:{medicines[0].hash}")
+        client = FakeClient(pharmacies_html=NO_PHARMACIES)
+
+        await handle_medicine_chosen(callback, state, client, cities, everywhere)
+
+        answer = callback.message.replies[0]
+        assert "по всей Грузии" in answer.text
+        assert answer.markup is not None
+
+    async def test_it_does_not_claim_the_medicine_is_missing(self, state, cities, everywhere):
+        medicines = parse_search(FOUND)
+        await _remember(state, medicines)
+        callback = FakeCallback(f"{MEDICINE_PREFIX}:{medicines[0].hash}")
+        client = FakeClient(pharmacies_html=NO_PHARMACIES)
+
+        await handle_medicine_chosen(callback, state, client, cities, everywhere)
+
+        assert "сейчас нет" not in callback.message.replies[0].text
+
+    async def test_results_are_shown_if_the_site_ever_answers(self, state, cities, everywhere):
+        # Если сайт починится, поведение прежнее — сообщение с аптеками.
+        medicines = parse_search(FOUND)
+        await _remember(state, medicines)
+        callback = FakeCallback(f"{MEDICINE_PREFIX}:{medicines[0].hash}")
+
+        await handle_medicine_chosen(callback, state, FakeClient(), cities, everywhere)
+
+        assert "₾" in callback.message.replies[0].text
+
+    async def test_a_real_city_still_says_it_plainly(self, state, cities, config):
+        # В конкретном городе пустая выдача — это честное «нет».
+        medicines = parse_search(FOUND)
+        await _remember(state, medicines)
+        callback = FakeCallback(f"{MEDICINE_PREFIX}:{medicines[0].hash}")
+        client = FakeClient(pharmacies_html=NO_PHARMACIES)
+
+        await handle_medicine_chosen(callback, state, client, cities, config)
+
+        assert "сейчас нет" in callback.message.replies[0].text
+
+    async def test_a_saved_everywhere_does_not_leak_into_the_list(self, cities, config, users):
+        # Проявление то же самое: со списком «есть в N аптеках» ноль дал бы
+        # «нет в наличии» у каждой позиции.
+        await handle_city_chosen(FakeCallback(f"{CITY_PREFIX}:{EVERYWHERE}"), cities, users)
+        assert await _current_city(1, users, config) != EVERYWHERE

@@ -149,11 +149,14 @@ def watches_keyboard(watches: Sequence) -> InlineKeyboardMarkup:
 
 
 def cities_keyboard(directory: CityDirectory) -> InlineKeyboardMarkup:
-    rows: List[List[InlineKeyboardButton]] = [[
-        InlineKeyboardButton(
-            text="Вся Грузия", callback_data=f"{CITY_PREFIX}:{EVERYWHERE}"
-        )
-    ]]
+    """Только конкретные города.
+
+    Кнопки «Вся Грузия» здесь нет намеренно: сайт на запрос без города отдаёт
+    пустую выдачу даже для препаратов, которые в аптеках есть, — предлагать
+    заведомо пустой поиск нечестно. Сам EVERYWHERE из кода не убран: он ещё
+    может прийти из настроек или из состояния, сохранённого до этой правки.
+    """
+    rows: List[List[InlineKeyboardButton]] = []
 
     row: List[InlineKeyboardButton] = []
     for city in directory.all():
@@ -509,6 +512,16 @@ async def handle_medicine_chosen(
 
     await count(stats, counters.STOCKS, user_id)
 
+    if not stocks and city == EVERYWHERE:
+        # «Нигде нет» тут было бы неправдой: сайт просто не умеет искать по всей
+        # стране разом. Вместо тупика — клавиатура городов. Кнопки подписки и
+        # аналогов тут не предлагаем: подписываться на заведомо пустой поиск
+        # незачем, сперва пусть выберут город.
+        await callback.message.answer(
+            fmt.nothing_everywhere(), reply_markup=cities_keyboard(cities)
+        )
+        return
+
     await _answer_with_addresses(
         callback.message, stocks, cities.name(city), client, cache,
         # Кнопки нужны и когда препарата нет: как раз тогда и хочется
@@ -571,12 +584,14 @@ async def _current_city(
     users: Optional[UserStore],
     config: Config,
 ) -> int:
-    if users is not None:
-        chosen = await users.get_city(user_id)
-        if chosen is not None:
-            return chosen
-        return config.default_city
-    return _city_fallback.get(user_id, config.default_city)
+    chosen = await users.get_city(user_id) if users is not None else _city_fallback.get(user_id)
+    # Ноль мог сохраниться, пока в клавиатуре была кнопка «Вся Грузия»: поиск по
+    # нему сайт не обслуживает, поэтому считаем, что город просто не выбран.
+    # Иначе такой пользователь навсегда остался бы с пустой выдачей — и в списке
+    # найденного, где у каждого препарата теперь пишется, в скольких он аптеках.
+    if chosen is not None and chosen != EVERYWHERE:
+        return chosen
+    return config.default_city
 
 
 async def _remember(state: FSMContext, medicines: Sequence[Medicine]) -> None:

@@ -114,7 +114,14 @@ class MisClient:
         district: int = 0,
         subdistrict: int = 0,
     ) -> str:
-        """Наличие препаратов в аптеках. 0 в city/district/subdistrict = «везде»."""
+        """Наличие препаратов в аптеках.
+
+        В district/subdistrict 0 означает «везде». А вот `city=0` сайт не
+        обслуживает: отдаёт «მოიძებნა 0 აფთიაქი» даже для препаратов, которые
+        в аптеках есть. Проверено 26.08.2026: с `city=1` тот же запрос отдаёт
+        десять аптек. Поэтому город должен быть настоящим — см. `EVERYWHERE`
+        в locations.py и обработку пустой выдачи в bot.py.
+        """
         if not medicine_hashes:
             raise ValueError("нужен хотя бы один хеш препарата")
         if len(medicine_hashes) > MAX_MEDICINES_PER_REQUEST:

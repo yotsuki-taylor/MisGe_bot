@@ -35,10 +35,15 @@ class TestFromEnv:
         monkeypatch.setenv(TOKEN_VAR, "123:abc")
         assert Config.from_env().token == "123:abc"
 
-    def test_broken_city_falls_back_to_everywhere(self, monkeypatch):
+    def test_broken_city_falls_back_to_tbilisi(self, monkeypatch):
         monkeypatch.setenv(TOKEN_VAR, "123:abc")
         monkeypatch.setenv(CITY_VAR, "Тбилиси")
-        assert Config.from_env().default_city == 0
+        assert Config.from_env().default_city == 1
+
+    def test_the_default_city_is_not_the_whole_country(self, monkeypatch):
+        # 0 — «вся Грузия», а по ней сайт ничего не отдаёт.
+        monkeypatch.setenv(TOKEN_VAR, "123:abc")
+        assert Config.from_env().default_city == 1
 
     def test_reads_the_admin_id(self, monkeypatch):
         monkeypatch.setenv(TOKEN_VAR, "123:abc")

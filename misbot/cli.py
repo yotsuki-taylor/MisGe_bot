@@ -42,7 +42,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("query", nargs="?", help="название препарата по-русски, латиницей или грузиницей")
     parser.add_argument("--pick", help="номера препаратов из выдачи через запятую, напр. 1,3")
-    parser.add_argument("--city", type=int, default=0, help="id города, 0 = везде (1 = Тбилиси)")
+    # Ноль сайт не обслуживает — отдаёт пустую выдачу, поэтому по умолчанию Тбилиси.
+    parser.add_argument("--city", type=int, default=1, help="id города (1 = Тбилиси)")
     parser.add_argument("--district", type=int, default=0, help="id района, 0 = везде")
     parser.add_argument("--subdistrict", type=int, default=0, help="id микрорайона, 0 = везде")
     parser.add_argument("--limit", type=int, default=20, help="сколько строк печатать")
