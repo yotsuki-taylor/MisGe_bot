@@ -10,6 +10,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
+from . import brands
 from .mis_client import MisClient
 from .models import Medicine
 from .parser import QueryTooShort, parse_search
@@ -27,6 +28,9 @@ MAX_ATTEMPTS = 8
 """Потолок обращений к сайту на один пользовательский запрос: 1 rps, ждать долго."""
 
 AS_IS = "as-is"
+BRAND = "brand"
+"""Написание взято из словаря brands.py, а не подобрано по буквам."""
+
 TRANSLIT = "translit"
 PREFIX = "prefix"
 INN = "inn"
@@ -96,9 +100,20 @@ def _plan(text: str, max_attempts: int) -> List[Tuple[str, str, bool]]:
             (text, INN, True),
         ]
 
+    plan: List[Tuple[str, str, bool]] = []
+
+    # Что знаем наверняка — спрашиваем первым: подбор по буквам до правильного
+    # написания добирается пятой попыткой, а это пять секунд ожидания.
+    known = brands.lookup(text)
+    if known is not None:
+        plan.extend((name, BRAND, False) for name in known.names)
+        if known.generic:
+            # Бренда может не быть в аптеках — тогда по МНН найдутся аналоги.
+            plan.append((known.generic, INN, True))
+
     # Три обращения придерживаем на обрубленные префиксы и на поиск по МНН.
     candidates = ru_to_latin_candidates(text, limit=max(1, max_attempts - 3))
-    plan: List[Tuple[str, str, bool]] = [(c, TRANSLIT, False) for c in candidates]
+    plan.extend((c, TRANSLIT, False) for c in candidates)
 
     # Хвост русского названия часто расходится с латинским («цефтриаксон» →
     # ceftriaxone), а поиск идёт по началу строки — обрубаем и пробуем снова.

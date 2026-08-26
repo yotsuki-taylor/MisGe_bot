@@ -31,6 +31,8 @@ NAMES = [
     "аторвастатин", "метформин", "инсулин", "гепарин", "варфарин",
     "дексаметазон", "преднизолон", "фуросемид", "магнезия", "но-шпа",
     "дротаверин", "лидокаин", "хлоргексидин", "морфин", "трамадол",
+    # Особые правила из brands.py: побуквенный подбор на них промахивается.
+    "зиртек",
 ]
 
 
@@ -57,7 +59,7 @@ async def main(verbose: bool) -> int:
     total = stats["всего"]
     hits = total - stats["мимо"]
     print(f"\nнайдено {hits} из {total} ({hits / total:.0%})")
-    for strategy in ("as-is", "translit", "prefix", "inn"):
+    for strategy in ("as-is", "brand", "translit", "prefix", "inn"):
         if stats[strategy]:
             print(f"  {strategy:<9} {stats[strategy]}")
 

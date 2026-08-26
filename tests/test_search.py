@@ -6,7 +6,7 @@ from typing import Dict, List
 import pytest
 
 from misbot.parser import QueryTooShort
-from misbot.search import AS_IS, INN, PREFIX, TRANSLIT, find_medicines
+from misbot.search import AS_IS, BRAND, INN, PREFIX, TRANSLIT, find_medicines
 
 FIXTURES = Path(__file__).parent / "fixtures"
 FOUND = (FIXTURES / "search_nurofen.html").read_text(encoding="utf-8")
@@ -97,3 +97,44 @@ class TestFindMedicines:
         with pytest.raises(QueryTooShort):
             await find_medicines(client, "но")
         assert client.calls == []
+
+
+class TestKnownBrands:
+    async def test_the_known_spelling_goes_first(self):
+        # Побуквенно вышло бы zirtec: «и» через y подбор считает экзотикой.
+        client = FakeClient({"zyrtec": FOUND})
+        outcome = await find_medicines(client, "зиртек")
+        assert outcome.found
+        assert outcome.strategy == BRAND
+        assert client.queries == ["zyrtec"]
+
+    async def test_case_and_spaces_do_not_matter(self):
+        client = FakeClient({"zyrtec": FOUND})
+        outcome = await find_medicines(client, "  Зиртек ")
+        assert outcome.strategy == BRAND
+
+    async def test_falls_back_to_the_generic(self):
+        # Бренда в аптеках нет — по МНН найдутся аналоги.
+        client = FakeClient({"cetirizin!inn": FOUND})
+        outcome = await find_medicines(client, "зиртек")
+        assert outcome.found
+        assert outcome.strategy == INN
+        assert client.queries[:2] == ["zyrtec", "cetirizin"]
+
+    async def test_the_letter_by_letter_plan_still_runs_after(self):
+        client = FakeClient({"zirtek": FOUND})
+        outcome = await find_medicines(client, "зиртек")
+        assert outcome.found
+        assert outcome.strategy == TRANSLIT
+
+    async def test_the_known_spelling_is_not_asked_twice(self):
+        # zyrtec есть и в словаре, и среди подобранных вариантов.
+        client = FakeClient({})
+        await find_medicines(client, "зиртек")
+        assert client.queries.count("zyrtec") == 1
+
+    async def test_unknown_names_are_unaffected(self):
+        client = FakeClient({"nurofen": FOUND})
+        outcome = await find_medicines(client, "нурофен")
+        assert outcome.strategy == TRANSLIT
+        assert client.queries == ["nurofen"]
