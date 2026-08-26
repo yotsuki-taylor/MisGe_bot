@@ -6,7 +6,9 @@ from typing import List
 
 import pytest
 
-from misbot.mis_client import MisUnavailable
+import httpx
+
+from misbot.mis_client import MisBlocked, MisUnavailable, _failure
 from misbot.parser import ParseError, parse_pharmacies, parse_search
 from misbot.stock_cache import StockCache
 from misbot.stocks import MAX_COUNTED, count_all, count_by_medicine, find_stocks, in_stock_first
@@ -297,3 +299,38 @@ class TestInStockFirst:
 
     def test_the_budget_is_three_requests(self):
         assert MAX_COUNTED == 39
+
+
+class TestFailureKind:
+    """«Не отвечает» и «не пускает» — разные поломки и лечатся по-разному."""
+
+    @staticmethod
+    def error(status: int) -> httpx.HTTPStatusError:
+        request = httpx.Request("GET", "http://www.mis.ge/mis_mobiluri.mis")
+        response = httpx.Response(status, request=request)
+        return httpx.HTTPStatusError("нет", request=request, response=response)
+
+    @pytest.mark.parametrize("status", [401, 403, 429])
+    def test_refusals_are_blocks(self, status):
+        assert isinstance(_failure(self.error(status), "не удался"), MisBlocked)
+
+    @pytest.mark.parametrize("status", [500, 502, 404])
+    def test_other_codes_are_plain_unavailability(self, status):
+        failure = _failure(self.error(status), "не удался")
+        assert isinstance(failure, MisUnavailable)
+        assert not isinstance(failure, MisBlocked)
+
+    def test_network_errors_are_plain_unavailability(self):
+        # У таймаута нет ответа, а значит и кода — по нему судить не о чем.
+        failure = _failure(httpx.ConnectTimeout("вышло время"), "не удался")
+        assert not isinstance(failure, MisBlocked)
+
+    def test_no_error_at_all(self):
+        assert isinstance(_failure(None, "не удался"), MisUnavailable)
+
+    def test_a_block_is_still_caught_as_unavailable(self):
+        # Всё, что ловит MisUnavailable, должно продолжать работать.
+        assert isinstance(MisBlocked("403"), MisUnavailable)
+
+    def test_the_status_is_kept_in_the_message(self):
+        assert "403" in str(_failure(self.error(403), "не удался"))

@@ -35,8 +35,9 @@ from .alerts import Alerter
 from .analogues import find_analogues
 from .cache import PharmacyCache
 from .config import Config, ConfigError
+from .health import SiteHealth
 from .locations import EVERYWHERE, CityDirectory
-from .mis_client import MisClient, MisUnavailable
+from .mis_client import MisBlocked, MisClient, MisUnavailable
 from .models import Medicine
 from .parser import ParseError, QueryTooShort, parse_medicine_card
 from .pharmacies import cached_only, resolve
@@ -410,8 +411,8 @@ async def handle_analogues(
     _busy.add(user_id)
     try:
         generic, medicines = await find_analogues(client, generic_hash)
-    except MisUnavailable:
-        await callback.message.answer(fmt.site_unavailable(lang))
+    except MisUnavailable as exc:
+        await callback.message.answer(_unavailable(exc, lang))
         return
     except ParseError as exc:
         log.error("парсер сломался на списке аналогов: %s", exc)
@@ -513,9 +514,9 @@ async def handle_query(
             await count(stats, counters.TOO_SHORT)
             await notice.edit_text(fmt.too_short(lang))
             return
-        except MisUnavailable:
+        except MisUnavailable as exc:
             await count(stats, counters.UNAVAILABLE)
-            await notice.edit_text(fmt.site_unavailable(lang))
+            await notice.edit_text(_unavailable(exc, lang))
             return
         except ParseError as exc:
             await count(stats, counters.UNAVAILABLE)
@@ -612,9 +613,9 @@ async def handle_medicine_chosen(
     _busy.add(user_id)
     try:
         stocks = await find_stocks(client, stock_cache, medicine_hash, city=city)
-    except MisUnavailable:
+    except MisUnavailable as exc:
         await count(stats, counters.UNAVAILABLE)
-        await callback.message.answer(fmt.site_unavailable(lang))
+        await callback.message.answer(_unavailable(exc, lang))
         return
     except ParseError as exc:
         await count(stats, counters.UNAVAILABLE)
@@ -843,6 +844,15 @@ async def _recall(state: FSMContext) -> List[Medicine]:
     ]
 
 
+def _unavailable(exc: Exception, lang: str) -> str:
+    """Сайт не ответил или ответил отказом — для пользователя это разные тексты.
+
+    Во втором случае советовать «попробуйте через несколько минут» нечестно:
+    блокировка сама не пройдёт.
+    """
+    return fmt.site_blocked(lang) if isinstance(exc, MisBlocked) else fmt.site_unavailable(lang)
+
+
 def _user_id(user) -> int:
     """0 — сообщение без отправителя: так приходят посты из каналов."""
     return user.id if user else 0
@@ -909,8 +919,9 @@ async def run(config: Config) -> None:
     # Владелец один и тот же и для /stats, и для сообщений о поломке: в личной
     # переписке telegram id пользователя совпадает с id чата.
     alerts = Alerter(bot, config.admin_id or None)
+    health = SiteHealth(on_down=alerts.site_down, on_up=alerts.site_up)
 
-    async with MisClient(contact=config.contact) as client:
+    async with MisClient(contact=config.contact, health=health) as client:
         async with PharmacyCache(config.database) as cache:
             async with Stats(config.database) as stats, \
                     UserStore(config.database) as users, \

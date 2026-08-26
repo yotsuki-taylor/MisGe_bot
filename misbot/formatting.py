@@ -135,6 +135,11 @@ def site_unavailable(lang: str = i18n.DEFAULT) -> str:
     return i18n.text("site_unavailable", lang)
 
 
+def site_blocked(lang: str = i18n.DEFAULT) -> str:
+    """Сайт отвечает, но отказом: пересиживать нечего, обещать «скоро» честнее."""
+    return i18n.text("site_blocked", lang)
+
+
 def parser_broken(lang: str = i18n.DEFAULT) -> str:
     return i18n.text("parser_broken", lang)
 

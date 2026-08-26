@@ -39,6 +39,29 @@ class MisUnavailable(RuntimeError):
     """Сайт не ответил или ответил ошибкой после всех попыток."""
 
 
+class MisBlocked(MisUnavailable):
+    """Сайт жив, но нас не пускает: 403, 429 и подобное.
+
+    Отдельно от «не отвечает», потому что лечится иначе: пересидеть блокировку
+    нельзя, надо разбираться — сбавлять частоту, менять User-Agent, писать
+    админам сайта. Подкласс, чтобы всё, что ловит MisUnavailable, продолжало
+    работать не зная про это различие.
+    """
+
+
+BLOCKING_CODES = frozenset({401, 403, 429})
+"""Коды, которыми сайт говорит «ты мне не нравишься», а не «мне плохо»."""
+
+
+def _failure(error: Optional[Exception], message: str) -> MisUnavailable:
+    """Отличить «сайт лежит» от «сайт не пускает» по коду ответа."""
+    response = getattr(error, "response", None)
+    status = getattr(response, "status_code", None)
+    if status in BLOCKING_CODES:
+        return MisBlocked(f"{message}: сайт ответил {status}")
+    return MisUnavailable(message)
+
+
 class _RateLimiter:
     """Не даёт двум корутинам уйти на сайт чаще, чем раз в min_interval."""
 
@@ -64,8 +87,10 @@ class MisClient:
         min_interval: float = MIN_INTERVAL,
         contact: str = DEFAULT_CONTACT,
         client: Optional[httpx.AsyncClient] = None,
+        health=None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
+        self._health = health
         self._limiter = _RateLimiter(min_interval)
         self._owns_client = client is None
         self._client = client or httpx.AsyncClient(
@@ -172,6 +197,13 @@ class MisClient:
 
             if response.encoding is None:
                 response.encoding = "utf-8"
+            if self._health is not None:
+                await self._health.recovered()
             return response.text
 
-        raise MisUnavailable(f"{method} {url} не удался") from last_error
+        failure = _failure(last_error, f"{method} {url} не удался")
+        if self._health is not None:
+            await self._health.failed(
+                str(last_error), blocked=isinstance(failure, MisBlocked)
+            )
+        raise failure from last_error

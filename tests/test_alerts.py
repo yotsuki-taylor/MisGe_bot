@@ -5,7 +5,7 @@ from typing import List, Tuple
 
 import pytest
 
-from misbot.alerts import Alerter
+from misbot.alerts import Alerter, _minutes
 
 
 class FakeBot:
@@ -81,3 +81,63 @@ class TestAlerter:
     @pytest.mark.parametrize("chat_id, expected", [(42, True), (None, False)])
     def test_enabled_flag(self, chat_id, expected):
         assert Alerter(FakeBot(), chat_id).enabled is expected
+
+
+class TestSiteAlerts:
+    @staticmethod
+    def alerter(bot, **kwargs):
+        return Alerter(bot, 42, **kwargs)
+
+    async def test_downtime_is_reported(self):
+        bot = FakeBot()
+        await self.alerter(bot).site_down("ConnectTimeout", False, timedelta(minutes=12))
+
+        [(chat, text)] = bot.sent
+        assert chat == 42
+        assert "не отвечает" in text
+        assert "12 мин" in text
+
+    async def test_a_block_reads_differently(self):
+        # «Подождите, пройдёт» — неправда: сайт жив и отвечает отказом.
+        bot = FakeBot()
+        await self.alerter(bot).site_down("403 Forbidden", True, timedelta(seconds=5))
+
+        [(_, text)] = bot.sent
+        assert "не пускает" in text
+        assert "info@mis.ge" in text
+
+    async def test_recovery_is_reported(self):
+        bot = FakeBot()
+        await self.alerter(bot).site_up(timedelta(minutes=30))
+
+        [(_, text)] = bot.sent
+        assert "снова отвечает" in text
+        assert "30 мин" in text
+
+    async def test_downtime_and_block_are_separate_alerts(self):
+        bot = FakeBot()
+        alerter = self.alerter(bot)
+        await alerter.site_down("таймаут", False, timedelta(minutes=11))
+        await alerter.site_down("403", True, timedelta(minutes=11))
+
+        assert len(bot.sent) == 2, "разные поломки — разные паузы"
+
+    async def test_repeated_downtime_is_held_back(self):
+        bot = FakeBot()
+        alerter = self.alerter(bot)
+        await alerter.site_down("таймаут", False, timedelta(minutes=11))
+        await alerter.site_down("таймаут", False, timedelta(minutes=12))
+
+        assert len(bot.sent) == 1
+
+    async def test_silent_without_a_chat_id(self):
+        bot = FakeBot()
+        await Alerter(bot, None).site_down("таймаут", False, timedelta(minutes=11))
+        assert bot.sent == []
+
+    @pytest.mark.parametrize(
+        "seconds, expected",
+        [(30, "30 с"), (600, "10 мин"), (3600, "1 ч 0 мин"), (9000, "2 ч 30 мин")],
+    )
+    def test_downtime_is_rounded_for_reading(self, seconds, expected):
+        assert _minutes(timedelta(seconds=seconds)) == expected

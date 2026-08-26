@@ -52,7 +52,7 @@ from misbot.bot import (
 from misbot import i18n
 from misbot.config import Config
 from misbot.locations import EVERYWHERE, FALLBACK_CITIES, CityDirectory
-from misbot.mis_client import MisUnavailable
+from misbot.mis_client import MisBlocked, MisUnavailable
 from misbot.parser import parse_search
 from misbot.stats import Stats
 from misbot.stocks import MAX_COUNTED, count_all, in_stock_first
@@ -965,3 +965,49 @@ class TestGeorgianInterface:
         await handle_query(message, state, FakeClient(), cities, config, users=users)
 
         assert "Нашлось" in message.replies[0].text
+
+
+class TestSiteBlocked:
+    """Отказ сайта и его молчание — для пользователя разные сообщения."""
+
+    async def test_a_block_does_not_promise_it_will_pass(self, state, cities, config):
+        client = FakeClient()
+        client.fail_with["search"] = MisBlocked("сайт ответил 403")
+        message = FakeMessage("нурофен")
+
+        await handle_query(message, state, client, cities, config)
+
+        text = message.replies[0].text
+        assert "не пускает" in text
+        assert "через несколько минут" not in text
+
+    async def test_plain_unavailability_reads_as_before(self, state, cities, config):
+        client = FakeClient()
+        client.fail_with["search"] = MisUnavailable("нет связи")
+        message = FakeMessage("нурофен")
+
+        await handle_query(message, state, client, cities, config)
+
+        assert message.replies[0].text == fmt.site_unavailable()
+
+    async def test_the_block_text_is_translated(self, state, cities, config, tmp_path):
+        async with UserStore(tmp_path / "ka.sqlite3") as users:
+            await users.set_language(1, i18n.KA)
+            client = FakeClient()
+            client.fail_with["search"] = MisBlocked("сайт ответил 403")
+            message = FakeMessage("нурофен")
+
+            await handle_query(message, state, client, cities, config, users=users)
+
+        assert message.replies[0].text == fmt.site_blocked(i18n.KA)
+
+    async def test_a_block_when_choosing_a_medicine(self, state, cities, config):
+        medicines = parse_search(FOUND)
+        await _remember(state, medicines)
+        callback = FakeCallback(f"{MEDICINE_PREFIX}:{medicines[0].hash}")
+        client = FakeClient()
+        client.fail_with["pharmacies"] = MisBlocked("сайт ответил 429")
+
+        await handle_medicine_chosen(callback, state, client, cities, config)
+
+        assert "не пускает" in callback.message.replies[0].text
