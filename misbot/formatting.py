@@ -1,7 +1,17 @@
 """Тексты бота. Всё, что видит пользователь, собирается здесь.
 
+Слова живут в [[i18n]], здесь — сборка: что за чем идёт, что выделено жирным,
+где перенос строки. Каждая функция принимает язык; по умолчанию русский, чтобы
+консольный прототип и тесты не тащили его через все вызовы.
+
 Разметка — HTML телеграма. Названия приходят с чужого сайта, поэтому любой текст
 оттуда обязательно проходит через html.escape.
+
+**Контент против интерфейса.** Интерфейс переводится словарём, а названия
+препаратов, аптек и адреса приходят с mis.ge и переводятся правилами (forms.py,
+translit.py). Для грузинского интерфейса эти правила выключены: сайт грузинский,
+и показать оригинал правильнее, чем транслитерировать его для того, кто читает
+по-грузински свободнее нас.
 """
 
 from __future__ import annotations
@@ -9,6 +19,7 @@ from __future__ import annotations
 from html import escape
 from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
+from . import i18n
 from .forms import translate_company, translate_country, translate_medicine
 from .landmarks import translate_landmark
 from .models import Medicine, Pharmacy, Stock
@@ -16,64 +27,69 @@ from .stats import Period
 from .translit import ka_to_latin, ka_to_ru
 
 SOURCE_URL = "http://www.mis.ge"
-SOURCE_LINE = f'Источник: <a href="{SOURCE_URL}">mis.ge</a>'
-DISCLAIMER = (
-    "Бот показывает цены и наличие. Он не назначает лечение и не заменяет врача."
-)
 
 MEDICINES_PER_PAGE = 8
 STOCKS_SHOWN = 8
 """Меньше десяти: с адресом и часами работы каждая аптека занимает четыре строки."""
 
 
-def greeting() -> str:
-    return (
-        "Привет! Я ищу лекарства по аптекам Грузии.\n\n"
-        "Напишите название препарата — по-русски, латиницей или по-грузински, "
-        "например <code>нурофен</code>. Я покажу, в каких аптеках он есть "
-        "и сколько стоит.\n\n"
-        f"Город можно выбрать командой /city.\n\n<i>{DISCLAIMER}</i>"
+def disclaimer(lang: str = i18n.DEFAULT) -> str:
+    return i18n.text("disclaimer", lang)
+
+
+def source_line(lang: str = i18n.DEFAULT) -> str:
+    return f'{i18n.text("source", lang)}: <a href="{SOURCE_URL}">mis.ge</a>'
+
+
+DISCLAIMER = disclaimer()
+SOURCE_LINE = source_line()
+
+
+# --- контент с сайта -------------------------------------------------------
+
+def _medicine_name(name: str, lang: str) -> str:
+    """Название препарата: по-русски или как на сайте."""
+    return name if lang == i18n.KA else translate_medicine(name)
+
+
+def _from_site(text: str, lang: str) -> str:
+    """Грузинская строка с сайта — город, район, часы работы."""
+    return text if lang == i18n.KA else ka_to_ru(text)
+
+
+def _pharmacy_name(name: str, lang: str) -> str:
+    """Вывеска аптеки. Грузинскому читателю латиница рядом с ней не нужна."""
+    return name if lang == i18n.KA else pharmacy_label(name)
+
+
+# --- команды ---------------------------------------------------------------
+
+def choose_language() -> str:
+    """Экран выбора языка. Кнопки называют языки на них самих."""
+    return i18n.text("choose_language", i18n.DEFAULT)
+
+
+def language_chosen(lang: str) -> str:
+    return i18n.text("language_chosen", lang)
+
+
+def greeting(lang: str = i18n.DEFAULT) -> str:
+    return f"{i18n.text('greeting', lang)}\n\n<i>{disclaimer(lang)}</i>"
+
+
+def help_text(lang: str = i18n.DEFAULT) -> str:
+    return f"{i18n.text('help', lang)}\n\n<i>{disclaimer(lang)}</i>"
+
+
+def about_text(contact: str, lang: str = i18n.DEFAULT) -> str:
+    body = i18n.text("about", lang).format(
+        source_url=SOURCE_URL, contact=escape(contact)
     )
-
-
-def help_text() -> str:
-    return (
-        "<b>Как пользоваться</b>\n\n"
-        "Просто напишите название препарата: <code>нурофен</code>, "
-        "<code>diclofenac</code>, <code>ნუროფენი</code>.\n\n"
-        "Из списка выберите нужную форму выпуска — покажу аптеки с ценами.\n\n"
-        "Под списком аптек есть кнопка «Следить»: я буду проверять препарат "
-        "раз в сутки и напишу, когда он появится или подешевеет.\n\n"
-        "<b>Команды</b>\n"
-        "/city — выбрать город\n"
-        "/watching — за чем слежу\n"
-        "/about — откуда данные\n\n"
-        f"<i>{DISCLAIMER}</i>"
-    )
-
-
-def about_text(contact: str) -> str:
-    return (
-        "Данные о наличии и ценах бот берёт с сайта "
-        f'<a href="{SOURCE_URL}">mis.ge</a> — это открытый справочник аптек Грузии. '
-        "Бот их не хранит и не перепродаёт, а только показывает.\n\n"
-        "<b>Важно про даты.</b> Аптеки обновляют остатки сами и делают это "
-        "по-разному: у части данные свежие, у части им больше года. "
-        "Дату обновления я показываю у каждой строки — смотрите на неё "
-        "и лучше позвоните в аптеку перед поездкой.\n\n"
-        "<b>Приватность.</b> Тексты запросов не сохраняются. Бот считает обезличенную "
-        "статистику — сколько было запросов и сколько из них нашлось; кто именно "
-        "спрашивал, из неё не видно: telegram id не хранится, вместо него хеш. "
-        "Учтите, что сайт-источник "
-        "работает без шифрования, так что название препарата уходит к нему "
-        "открытым текстом.\n\n"
-        f"Связь: {escape(contact)}\n\n"
-        f"<i>{DISCLAIMER}</i>"
-    )
+    return f"{body}\n\n<i>{disclaimer(lang)}</i>"
 
 
 def stats_text(periods: Sequence[Period]) -> str:
-    """Счётчики для владельца бота. Команда /stats, в /help её нет."""
+    """Счётчики для владельца бота. Не переводятся: читает их один человек."""
     lines = ["<b>Статистика</b>", ""]
     for period in periods:
         lines.append(f"<b>{escape(period.label)}</b>")
@@ -94,60 +110,54 @@ def stats_text(periods: Sequence[Period]) -> str:
     return "\n".join(lines)
 
 
-def searching(query: str) -> str:
-    return f"Ищу «{escape(query)}»…"
+def searching(query: str, lang: str = i18n.DEFAULT) -> str:
+    return i18n.text("searching", lang).format(query=escape(query))
 
 
-def nothing_found(query: str) -> str:
-    return (
-        f"По запросу «{escape(query)}» ничего не нашлось.\n\n"
-        "Попробуйте написать иначе — например, действующее вещество "
-        "вместо торгового названия (<code>ибупрофен</code> вместо "
-        "<code>нурофен</code>) или первые несколько букв."
-    )
+def nothing_found(query: str, lang: str = i18n.DEFAULT) -> str:
+    return i18n.text("nothing_found", lang).format(query=escape(query))
 
 
-def nothing_everywhere() -> str:
+def nothing_everywhere(lang: str = i18n.DEFAULT) -> str:
     """Пустой ответ на поиск «по всей Грузии».
 
     Сайт на такой запрос отдаёт ноль аптек даже для препаратов, которые в
     аптеках есть, — поэтому говорить «нигде нет» было бы неправдой.
     """
-    return (
-        "Поиск сразу по всей Грузии сайт-источник не отдаёт: по нему приходит "
-        "пустой ответ, даже когда препарат в аптеках есть.\n\n"
-        "Выберите город — в нём поиск работает:"
-    )
+    return i18n.text("nothing_everywhere", lang)
 
 
-def too_short() -> str:
-    return "Слишком короткий запрос — нужно хотя бы три буквы."
+def too_short(lang: str = i18n.DEFAULT) -> str:
+    return i18n.text("too_short", lang)
 
 
-def site_unavailable() -> str:
-    return (
-        "Сайт-источник сейчас не отвечает. Это бывает — попробуйте через "
-        "несколько минут."
-    )
+def site_unavailable(lang: str = i18n.DEFAULT) -> str:
+    return i18n.text("site_unavailable", lang)
 
 
-def parser_broken() -> str:
-    return (
-        "Не смог разобрать ответ сайта: похоже, там что-то поменяли. "
-        "Я уже знаю о проблеме, скоро починим."
-    )
+def parser_broken(lang: str = i18n.DEFAULT) -> str:
+    return i18n.text("parser_broken", lang)
 
 
-def busy() -> str:
-    return "Ещё ищу предыдущий запрос, секунду…"
+def busy(lang: str = i18n.DEFAULT) -> str:
+    return i18n.text("busy", lang)
 
 
-def pharmacies_count(count: int) -> str:
-    """«в 1 аптеке», «в 2 аптеках», «в 21 аптеке» — и «нет в наличии» на ноль."""
+def city_unknown(lang: str = i18n.DEFAULT) -> str:
+    return i18n.text("city_unknown", lang)
+
+
+def pharmacies_count(count: int, lang: str = i18n.DEFAULT) -> str:
+    """«в 1 аптеке», «в 2 аптеках», «в 21 аптеке» — и «нет в наличии» на ноль.
+
+    Форм две, потому что этого требует русский; в грузинском числительное
+    существительное не меняет, и обе строки словаря там совпадают.
+    """
     if count <= 0:
-        return "нет в наличии"
-    word = "аптеке" if count % 10 == 1 and count % 100 != 11 else "аптеках"
-    return f"есть в {count} {word}"
+        return i18n.text("out_of_stock", lang)
+    single = count % 10 == 1 and count % 100 != 11
+    key = "in_stock_one" if single else "in_stock_many"
+    return i18n.text(key, lang).format(count=count)
 
 
 def medicines_page(
@@ -156,36 +166,42 @@ def medicines_page(
     city_name: str,
     title: str = "",
     counts: Optional[Dict[str, int]] = None,
+    lang: str = i18n.DEFAULT,
 ) -> Tuple[str, List[Tuple[str, str]]]:
     """Страница выдачи: текст сообщения и подписи кнопок с хешами препаратов."""
     page = medicines[offset:offset + MEDICINES_PER_PAGE]
 
-    headline = title or f"Нашлось: <b>{len(medicines)}</b>."
-    lines = [f"{headline} Показываю город: <b>{escape(city_name)}</b>.", ""]
+    headline = title or i18n.text("found_total", lang).format(total=len(medicines))
+    showing = i18n.text("showing_city", lang).format(city=escape(city_name))
+    lines = [f"{headline} {showing}", ""]
     buttons: List[Tuple[str, str]] = []
 
     for number, medicine in enumerate(page, start=offset + 1):
-        name = escape(translate_medicine(medicine.name))
+        name = escape(_medicine_name(medicine.name, lang))
         lines.append(f"<b>{number}.</b> {name}")
 
-        details = [
-            translate_company(medicine.company),
-            translate_country(medicine.country),
-        ]
+        details = _medicine_details(medicine, lang)
         if _needs_prescription(medicine):
-            details.append("по рецепту")
+            details.append(i18n.text("prescription", lang))
         detail_line = " · ".join(escape(d) for d in details if d)
         if detail_line:
             lines.append(f"    <i>{detail_line}</i>")
 
         if counts is not None and medicine.hash in counts:
-            lines.append(f"    {pharmacies_count(counts[medicine.hash])}")
+            lines.append(f"    {pharmacies_count(counts[medicine.hash], lang)}")
 
         buttons.append((str(number), medicine.hash))
 
     lines.append("")
-    lines.append("Выберите номер — покажу аптеки.")
+    lines.append(i18n.text("pick_number", lang))
     return "\n".join(lines), buttons
+
+
+def _medicine_details(medicine: Medicine, lang: str) -> List[str]:
+    """Производитель и страна: для грузинского — как на сайте."""
+    if lang == i18n.KA:
+        return [medicine.company, medicine.country]
+    return [translate_company(medicine.company), translate_country(medicine.country)]
 
 
 def shown_stocks(stocks: Sequence[Stock], limit: int = STOCKS_SHOWN) -> List[Stock]:
@@ -204,6 +220,7 @@ def stocks_message(
     stocks: Sequence[Stock],
     city_name: str,
     pharmacies: Optional[Dict[int, Pharmacy]] = None,
+    lang: str = i18n.DEFAULT,
 ) -> str:
     """Аптеки, где препарат есть. Адреса подставляются, если карточки уже добыты."""
     pharmacies = pharmacies or {}
@@ -211,41 +228,47 @@ def stocks_message(
     shown = shown_stocks(stocks)
 
     if not shown:
-        return (
-            f"В городе <b>{escape(city_name)}</b> этого препарата сейчас нет.\n\n"
-            "Попробуйте выбрать другой город командой /city."
-        )
+        return i18n.text("no_stock_in_city", lang).format(city=escape(city_name))
 
-    name = escape(translate_medicine(shown[0].medicine_name))
+    name = escape(_medicine_name(shown[0].medicine_name, lang))
     lines = [f"<b>{name}</b>", ""]
 
     for stock in shown:
-        lines.append(_stock_line(stock, pharmacies.get(stock.pharmacy_id)))
+        lines.append(_stock_line(stock, pharmacies.get(stock.pharmacy_id), lang))
         lines.append("")
 
     if len(unique) > len(shown):
-        lines.append(f"<i>…и ещё {len(unique) - len(shown)} аптек — показываю самые дешёвые.</i>")
+        more = i18n.text("more_pharmacies", lang).format(count=len(unique) - len(shown))
+        lines.append(f"<i>{more}</i>")
         lines.append("")
 
-    lines.append(f"<i>{DISCLAIMER}</i>")
-    lines.append(SOURCE_LINE)
+    lines.append(f"<i>{disclaimer(lang)}</i>")
+    lines.append(source_line(lang))
     return "\n".join(lines)
 
 
-def _stock_line(stock: Stock, pharmacy: Optional[Pharmacy] = None) -> str:
-    price = f"<b>{stock.price} ₾</b>" if stock.price is not None else "<i>цена не указана</i>"
-    clock = " · круглосуточно" if stock.round_the_clock else ""
+def _stock_line(
+    stock: Stock,
+    pharmacy: Optional[Pharmacy] = None,
+    lang: str = i18n.DEFAULT,
+) -> str:
+    price = (
+        f"<b>{stock.price} ₾</b>" if stock.price is not None
+        else f"<i>{i18n.text('price_unknown', lang)}</i>"
+    )
+    clock = f" · {i18n.text('round_the_clock', lang)}" if stock.round_the_clock else ""
     updated = (
-        f"обновлено {stock.updated.isoformat()}" if stock.updated else "дата обновления неизвестна"
+        i18n.text("updated", lang).format(date=stock.updated.isoformat())
+        if stock.updated else i18n.text("updated_unknown", lang)
     )
     stale = " ⚠️" if stock.is_stale else ""
 
     signboard = pharmacy.display_name if pharmacy and pharmacy.display_name else ""
-    name = escape(pharmacy_label(signboard or stock.pharmacy_name))
+    name = escape(_pharmacy_name(signboard or stock.pharmacy_name, lang))
 
-    lines = [f"{price} — {name}{clock}", _where_line(stock, pharmacy)]
+    lines = [f"{price} — {name}{clock}", _where_line(stock, pharmacy, lang)]
 
-    schedule = _schedule_line(pharmacy)
+    schedule = _schedule_line(pharmacy, lang)
     if schedule:
         lines.append(schedule)
 
@@ -271,11 +294,11 @@ def pharmacy_label(name: str, romanise: Callable[[str], str] = ka_to_latin) -> s
     return f"{romanised} ({name})"
 
 
-def _where_line(stock: Stock, pharmacy: Optional[Pharmacy]) -> str:
+def _where_line(stock: Stock, pharmacy: Optional[Pharmacy], lang: str) -> str:
     """Адрес, если он известен, иначе город и район из строки остатка."""
     if pharmacy is None or not pharmacy.address:
         where = " / ".join(
-            escape(ka_to_ru(part))
+            escape(_from_site(part, lang))
             for part in (stock.city, stock.district, stock.subdistrict)
             if part and part.strip()
         )
@@ -283,27 +306,27 @@ def _where_line(stock: Stock, pharmacy: Optional[Pharmacy]) -> str:
 
     # Улица как на сайте: её сличают с табличкой на доме и показывают водителю.
     street = escape(strip_area(pharmacy.address, stock))
-    district = escape(ka_to_ru(stock.district)) if stock.district.strip() else ""
+    district = escape(_from_site(stock.district, lang)) if stock.district.strip() else ""
     address = f"{street}, {district}" if district else street
 
     if pharmacy.map_url:
         address = f'<a href="{escape(pharmacy.map_url, quote=True)}">{address}</a>'
     if pharmacy.landmark:
         # Перевод — чтобы понять, куда идти. Оригинал под ним — чтобы показать
-        # прохожему или таксисту.
-        translated = translate_landmark(pharmacy.landmark)
+        # прохожему или таксисту. Для грузинского хватает одного оригинала.
+        translated = "" if lang == i18n.KA else translate_landmark(pharmacy.landmark)
         if translated:
             address += f"\n{escape(translated)}"
         address += f"\n<i>{escape(pharmacy.landmark)}</i>"
     return f"📍 {address}"
 
 
-def _schedule_line(pharmacy: Optional[Pharmacy]) -> str:
+def _schedule_line(pharmacy: Optional[Pharmacy], lang: str = i18n.DEFAULT) -> str:
     if pharmacy is None:
         return ""
     parts = []
     if pharmacy.hours:
-        parts.append(escape(ka_to_ru(pharmacy.hours)))
+        parts.append(escape(_from_site(pharmacy.hours, lang)))
     if pharmacy.phone:
         parts.append(f"☎ {escape(pharmacy.phone)}")
     return " · ".join(parts)
@@ -323,111 +346,115 @@ def strip_area(address: str, stock: Stock) -> str:
     return remainder or address.strip()
 
 
-def city_chosen(city_name: str) -> str:
-    return f"Город: <b>{escape(city_name)}</b>. Напишите название препарата."
+def city_chosen(city_name: str, lang: str = i18n.DEFAULT) -> str:
+    return i18n.text("city_chosen", lang).format(city=escape(city_name))
 
 
-def analogues_title(generic: str, total: int) -> str:
-    return (
-        f"🧬 Аналоги: то же действующее вещество, <b>{escape(generic)}</b>. "
-        f"Нашлось: <b>{total}</b>."
+def choose_city(current_name: str, lang: str = i18n.DEFAULT) -> str:
+    return i18n.text("choose_city", lang).format(city=escape(current_name))
+
+
+def analogues_title(generic: str, total: int, lang: str = i18n.DEFAULT) -> str:
+    return i18n.text("analogues_title", lang).format(
+        generic=escape(generic), total=total
     )
 
 
-def no_analogues() -> str:
-    return "Других препаратов с тем же действующим веществом не нашлось."
+def no_analogues(lang: str = i18n.DEFAULT) -> str:
+    return i18n.text("no_analogues", lang)
 
 
-def analogues_unavailable() -> str:
-    return "Не смог получить список аналогов. Попробуйте ещё раз чуть позже."
+def analogues_unavailable(lang: str = i18n.DEFAULT) -> str:
+    return i18n.text("analogues_unavailable", lang)
 
 
-UNNAMED_MEDICINE = "препаратом"
+UNNAMED_MEDICINE = i18n.text("unnamed_medicine", i18n.DEFAULT)
 """Название не добыли — лучше обтекаемо, чем дыра в предложении."""
 
 
-def watch_added(medicine_name: str, city_name: str) -> str:
-    name = escape(translate_medicine(medicine_name)) if medicine_name else UNNAMED_MEDICINE
-    return (
-        f"Слежу за <b>{name}</b> "
-        f"в городе <b>{escape(city_name)}</b>.\n\n"
-        "Проверяю раз в сутки и напишу, когда препарат появится или подешевеет. "
-        "Список подписок — /watching."
+def watch_added(medicine_name: str, city_name: str, lang: str = i18n.DEFAULT) -> str:
+    name = (
+        escape(_medicine_name(medicine_name, lang)) if medicine_name
+        else i18n.text("unnamed_medicine", lang)
     )
+    return i18n.text("watch_added", lang).format(name=name, city=escape(city_name))
 
 
-def watch_removed() -> str:
-    return "Больше не слежу. Список подписок — /watching."
+def watch_removed(lang: str = i18n.DEFAULT) -> str:
+    return i18n.text("watch_removed", lang)
 
 
-def watch_limit(limit: int) -> str:
-    return (
-        f"Уже слежу за {limit} препаратами — это предел. "
-        "Отпишитесь от ненужного через /watching, и можно будет добавить новый."
-    )
+def watch_limit(limit: int, lang: str = i18n.DEFAULT) -> str:
+    return i18n.text("watch_limit", lang).format(limit=limit)
 
 
-def watch_list(watches, city_name) -> str:
+def watch_list(watches, city_name, lang: str = i18n.DEFAULT) -> str:
     """Список подписок. city_name — функция, переводящая id города в название."""
     if not watches:
-        return (
-            "Пока ни за чем не слежу.\n\n"
-            "Найдите препарат, откройте аптеки и нажмите «Следить» — "
-            "я буду проверять раз в сутки и напишу, когда он появится или подешевеет."
-        )
+        return i18n.text("watch_list_empty", lang)
 
-    lines = ["<b>Слежу за препаратами</b>", ""]
+    lines = [i18n.text("watch_list_title", lang), ""]
     for number, watch in enumerate(watches, start=1):
-        name = escape(translate_medicine(watch.name)) if watch.name else "препарат"
-        state = (
-            f"есть, от {watch.best_price} ₾"
-            if watch.available and watch.best_price is not None
-            else "есть" if watch.available
-            else "нет в наличии"
+        name = (
+            escape(_medicine_name(watch.name, lang)) if watch.name
+            else i18n.text("unnamed_medicine_short", lang)
         )
+        if watch.available and watch.best_price is not None:
+            state = i18n.text("watch_state_priced", lang).format(price=watch.best_price)
+        elif watch.available:
+            state = i18n.text("watch_state_available", lang)
+        else:
+            state = i18n.text("out_of_stock", lang)
         lines.append(f"<b>{number}.</b> {name}")
         lines.append(f"    {escape(city_name(watch.city))} · {state}")
     lines.append("")
-    lines.append("Чтобы перестать следить, нажмите номер.")
+    lines.append(i18n.text("watch_list_hint", lang))
     return "\n".join(lines)
 
 
-def watch_news(watch, reason: str, stocks, city_name: str) -> str:
+def watch_news(
+    watch,
+    reason: str,
+    stocks,
+    city_name: str,
+    lang: str = i18n.DEFAULT,
+) -> str:
     """Уведомление о том, что препарат появился или подешевел."""
     shown = shown_stocks(stocks, limit=3)
-    name = escape(translate_medicine(watch.name or (shown[0].medicine_name if shown else "")))
+    raw_name = watch.name or (shown[0].medicine_name if shown else "")
+    name = escape(_medicine_name(raw_name, lang))
 
     # Заголовок отдельной строкой: названия препаратов длинные и кончаются
     # на «16 шт.», к которому «появился» прилипает нечитаемо.
     if reason == "cheaper":
-        headline = "💰 <b>Подешевел</b>"
+        headline = i18n.text("watch_news_cheaper", lang)
         prices = [s.price for s in shown if s.price is not None]
         if watch.best_price is not None and prices:
-            headline += f": было от {watch.best_price} ₾, стало от {min(prices)} ₾"
+            headline += i18n.text("watch_news_cheaper_prices", lang).format(
+                old=watch.best_price, new=min(prices)
+            )
     else:
-        headline = "🔔 <b>Появился в продаже</b>"
+        headline = i18n.text("watch_news_appeared", lang)
 
-    lines = [headline, "", name, f"Город: {escape(city_name)}", ""]
+    lines = [
+        headline, "", name,
+        i18n.text("watch_news_city", lang).format(city=escape(city_name)), "",
+    ]
     for stock in shown:
-        price = f"<b>{stock.price} ₾</b>" if stock.price is not None else "цена не указана"
-        lines.append(f"{price} — {escape(pharmacy_label(stock.pharmacy_name))}")
+        price = (
+            f"<b>{stock.price} ₾</b>" if stock.price is not None
+            else i18n.text("price_unknown", lang)
+        )
+        lines.append(f"{price} — {escape(_pharmacy_name(stock.pharmacy_name, lang))}")
     lines.append("")
-    lines.append("Отписаться или посмотреть список — /watching.")
-    lines.append(f"<i>{DISCLAIMER}</i>")
-    lines.append(SOURCE_LINE)
+    lines.append(i18n.text("watch_news_hint", lang))
+    lines.append(f"<i>{disclaimer(lang)}</i>")
+    lines.append(source_line(lang))
     return "\n".join(lines)
 
 
-def chat_id(value: int) -> str:
-    return (
-        f"Ваш telegram id: <code>{value}</code>\n\n"
-        "Положите его в <code>MISGE_ADMIN_ID</code>, чтобы получать /stats "
-        "и сообщения о поломке разбора."
-    )
-
-
-def choose_city(current_name: str) -> str:
-    return f"Сейчас ищу в: <b>{escape(current_name)}</b>.\n\nВыберите город:"
+def chat_id(value: int, lang: str = i18n.DEFAULT) -> str:
+    return i18n.text("chat_id", lang).format(value=value)
 
 
 def _dedupe(stocks: Iterable[Stock]) -> List[Stock]:

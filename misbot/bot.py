@@ -29,6 +29,7 @@ from aiogram.types import (
 )
 
 from . import formatting as fmt
+from . import i18n
 from . import stats as counters
 from .alerts import Alerter
 from .analogues import find_analogues
@@ -65,6 +66,7 @@ PAGE_PREFIX = "p"
 WATCH_PREFIX = "w"
 UNWATCH_PREFIX = "u"
 ANALOGUE_PREFIX = "a"
+LANGUAGE_PREFIX = "l"
 
 CITY_COLUMNS = 2
 
@@ -74,10 +76,18 @@ _busy: Set[int] = set()
 _city_fallback: Dict[int, int] = {}
 """Выбранный город, когда база не подключена (тесты и запуск без хранилища)."""
 
+_lang_fallback: Dict[int, str] = {}
+"""То же для языка."""
+
 
 # --- клавиатуры ------------------------------------------------------------
 
-def medicines_keyboard(buttons: Sequence, offset: int, total: int) -> InlineKeyboardMarkup:
+def medicines_keyboard(
+    buttons: Sequence,
+    offset: int,
+    total: int,
+    lang: str = i18n.DEFAULT,
+) -> InlineKeyboardMarkup:
     rows: List[List[InlineKeyboardButton]] = []
 
     row: List[InlineKeyboardButton] = []
@@ -95,12 +105,18 @@ def medicines_keyboard(buttons: Sequence, offset: int, total: int) -> InlineKeyb
     if offset:
         previous = max(0, offset - fmt.MEDICINES_PER_PAGE)
         navigation.append(
-            InlineKeyboardButton(text="← назад", callback_data=f"{PAGE_PREFIX}:{previous}")
+            InlineKeyboardButton(
+                text=i18n.text("button_back", lang),
+                callback_data=f"{PAGE_PREFIX}:{previous}",
+            )
         )
     if offset + fmt.MEDICINES_PER_PAGE < total:
         following = offset + fmt.MEDICINES_PER_PAGE
         navigation.append(
-            InlineKeyboardButton(text="ещё →", callback_data=f"{PAGE_PREFIX}:{following}")
+            InlineKeyboardButton(
+                text=i18n.text("button_more", lang),
+                callback_data=f"{PAGE_PREFIX}:{following}",
+            )
         )
     if navigation:
         rows.append(navigation)
@@ -114,20 +130,21 @@ def stock_keyboard(
     *,
     watching: bool,
     generic_hash: str = "",
+    lang: str = i18n.DEFAULT,
 ) -> Optional[InlineKeyboardMarkup]:
     """Кнопки под списком аптек: следить и посмотреть аналоги."""
     rows: List[List[InlineKeyboardButton]] = []
 
     if watching:
         rows.append([InlineKeyboardButton(
-            text="🔔 Следить за препаратом",
+            text=i18n.text("button_watch", lang),
             callback_data=f"{WATCH_PREFIX}:{medicine_hash}:{city}",
         )])
     if generic_hash:
         # Не «подешевле»: список не отсортирован по цене и не проверен на
         # наличие, обещать выгоду нечестно.
         rows.append([InlineKeyboardButton(
-            text="🧬 Тот же состав",
+            text=i18n.text("button_analogues", lang),
             callback_data=f"{ANALOGUE_PREFIX}:{generic_hash}",
         )])
 
@@ -152,6 +169,21 @@ def watches_keyboard(watches: Sequence) -> InlineKeyboardMarkup:
     if row:
         rows.append(row)
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def language_keyboard() -> InlineKeyboardMarkup:
+    """Языки, каждый назван на себе самом.
+
+    Строится из i18n.SUPPORTED, поэтому новый язык появляется здесь сам — но и
+    не появляется, пока для него нет переводов: кнопка, ведущая на чужой язык,
+    обманывала бы.
+    """
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text=i18n.NAMES[lang], callback_data=f"{LANGUAGE_PREFIX}:{lang}"
+        )]
+        for lang in i18n.SUPPORTED
+    ])
 
 
 def cities_keyboard(directory: CityDirectory) -> InlineKeyboardMarkup:
@@ -180,17 +212,68 @@ def cities_keyboard(directory: CityDirectory) -> InlineKeyboardMarkup:
 
 # --- команды ---------------------------------------------------------------
 
-async def handle_start(message: Message, stats: Optional[Stats] = None) -> None:
-    await count(stats, counters.START, _user_id(message.from_user))
-    await message.answer(fmt.greeting(), disable_web_page_preview=True)
+async def handle_start(
+    message: Message,
+    stats: Optional[Stats] = None,
+    users: Optional[UserStore] = None,
+) -> None:
+    """Первый экран. Новому человеку — выбор языка, остальным приветствие.
+
+    Спрашиваем язык до приветствия: приветствие всё равно надо на чём-то писать,
+    и угадывать неоткуда — telegram отдаёт язык клиента, но им пользуются и те,
+    у кого интерфейс на английском при русском родном.
+    """
+    user_id = _user_id(message.from_user)
+    await count(stats, counters.START, user_id)
+
+    if await _chosen_lang(user_id, users) is None:
+        await message.answer(fmt.choose_language(), reply_markup=language_keyboard())
+        return
+
+    lang = await _current_lang(user_id, users)
+    await message.answer(fmt.greeting(lang), disable_web_page_preview=True)
 
 
-async def handle_help(message: Message) -> None:
-    await message.answer(fmt.help_text(), disable_web_page_preview=True)
+async def handle_language(message: Message, users: Optional[UserStore] = None) -> None:
+    await message.answer(fmt.choose_language(), reply_markup=language_keyboard())
 
 
-async def handle_about(message: Message, config: Config) -> None:
-    await message.answer(fmt.about_text(config.contact), disable_web_page_preview=True)
+async def handle_language_chosen(
+    callback: CallbackQuery,
+    users: Optional[UserStore] = None,
+) -> None:
+    lang = callback.data.split(":", 1)[1]
+    if not i18n.known(lang):
+        await callback.answer()
+        return
+
+    user_id = _user_id(callback.from_user)
+    if users is not None:
+        await users.set_language(user_id, lang)
+    else:
+        _lang_fallback[user_id] = lang
+
+    await callback.answer()
+    if callback.message:
+        # Приветствие следом: человек только что нажал кнопку и ждёт, что дальше.
+        await callback.message.edit_text(fmt.language_chosen(lang))
+        await callback.message.answer(fmt.greeting(lang), disable_web_page_preview=True)
+
+
+async def handle_help(message: Message, users: Optional[UserStore] = None) -> None:
+    lang = await _current_lang(_user_id(message.from_user), users)
+    await message.answer(fmt.help_text(lang), disable_web_page_preview=True)
+
+
+async def handle_about(
+    message: Message,
+    config: Config,
+    users: Optional[UserStore] = None,
+) -> None:
+    lang = await _current_lang(_user_id(message.from_user), users)
+    await message.answer(
+        fmt.about_text(config.contact, lang), disable_web_page_preview=True
+    )
 
 
 async def handle_stats(
@@ -214,12 +297,15 @@ async def handle_watching(
     message: Message,
     cities: CityDirectory,
     watches: Optional[WatchStore] = None,
+    users: Optional[UserStore] = None,
 ) -> None:
     if watches is None:
         return
-    mine = await watches.for_user(_user_id(message.from_user))
+    user_id = _user_id(message.from_user)
+    lang = await _current_lang(user_id, users)
+    mine = await watches.for_user(user_id)
     await message.answer(
-        fmt.watch_list(mine, cities.name),
+        fmt.watch_list(mine, cities.name, lang),
         reply_markup=watches_keyboard(mine) if mine else None,
     )
 
@@ -230,6 +316,7 @@ async def handle_watch(
     cities: CityDirectory,
     watches: Optional[WatchStore] = None,
     stock_cache: Optional[StockCache] = None,
+    users: Optional[UserStore] = None,
 ) -> None:
     """Подписаться. Текущее наличие берём из кеша — он только что заполнен."""
     if watches is None or callback.message is None:
@@ -239,6 +326,7 @@ async def handle_watch(
     _, medicine_hash, raw_city = callback.data.split(":", 2)
     city = _int(raw_city) or 0
     user_id = _user_id(callback.from_user)
+    lang = await _current_lang(user_id, users)
 
     try:
         stocks = await find_stocks(client, stock_cache, medicine_hash, city=city)
@@ -250,7 +338,7 @@ async def handle_watch(
             else parse_medicine_card(await client.medicine_card(medicine_hash))
         )
     except (MisUnavailable, ParseError):
-        await callback.answer("Сейчас не получилось, попробуйте позже")
+        await callback.answer(i18n.text("toast_try_later", lang))
         return
 
     added = await watches.add(
@@ -262,17 +350,18 @@ async def handle_watch(
 
     if not added:
         await callback.answer()
-        await callback.message.answer(fmt.watch_limit(MAX_PER_USER))
+        await callback.message.answer(fmt.watch_limit(MAX_PER_USER, lang))
         return
 
-    await callback.answer("Слежу")
-    await callback.message.answer(fmt.watch_added(name, cities.name(city)))
+    await callback.answer(i18n.text("toast_watching", lang))
+    await callback.message.answer(fmt.watch_added(name, cities.name(city), lang))
 
 
 async def handle_unwatch(
     callback: CallbackQuery,
     cities: CityDirectory,
     watches: Optional[WatchStore] = None,
+    users: Optional[UserStore] = None,
 ) -> None:
     if watches is None or callback.message is None:
         await callback.answer()
@@ -280,12 +369,13 @@ async def handle_unwatch(
 
     _, medicine_hash, raw_city = callback.data.split(":", 2)
     user_id = _user_id(callback.from_user)
+    lang = await _current_lang(user_id, users)
     await watches.remove(user_id, medicine_hash, _int(raw_city) or 0)
-    await callback.answer("Больше не слежу")
+    await callback.answer(i18n.text("toast_unwatched", lang))
 
     mine = await watches.for_user(user_id)
     await callback.message.edit_text(
-        fmt.watch_list(mine, cities.name),
+        fmt.watch_list(mine, cities.name, lang),
         reply_markup=watches_keyboard(mine) if mine else None,
     )
 
@@ -307,9 +397,10 @@ async def handle_analogues(
     """
     generic_hash = callback.data.split(":", 1)[1]
     user_id = _user_id(callback.from_user)
+    lang = await _current_lang(user_id, users)
 
     if user_id in _busy:
-        await callback.answer(fmt.busy())
+        await callback.answer(fmt.busy(lang))
         return
     await callback.answer()
 
@@ -320,19 +411,19 @@ async def handle_analogues(
     try:
         generic, medicines = await find_analogues(client, generic_hash)
     except MisUnavailable:
-        await callback.message.answer(fmt.site_unavailable())
+        await callback.message.answer(fmt.site_unavailable(lang))
         return
     except ParseError as exc:
         log.error("парсер сломался на списке аналогов: %s", exc)
         if alerts is not None:
             await alerts.parser_broken("список аналогов", str(exc))
-        await callback.message.answer(fmt.analogues_unavailable())
+        await callback.message.answer(fmt.analogues_unavailable(lang))
         return
     finally:
         _busy.discard(user_id)
 
     if not medicines:
-        await callback.message.answer(fmt.no_analogues())
+        await callback.message.answer(fmt.no_analogues(lang))
         return
 
     city = await _current_city(user_id, users, config)
@@ -340,18 +431,20 @@ async def handle_analogues(
     await _remember(state, medicines, counts, city)
     text, buttons = fmt.medicines_page(
         medicines, 0, cities.name(city),
-        title=fmt.analogues_title(generic, len(medicines)),
+        title=fmt.analogues_title(generic, len(medicines), lang),
         counts=counts if counts is not None
         else await _counts(client, stock_cache, medicines, 0, city),
+        lang=lang,
     )
     await callback.message.answer(
-        text, reply_markup=medicines_keyboard(buttons, 0, len(medicines))
+        text, reply_markup=medicines_keyboard(buttons, 0, len(medicines), lang)
     )
 
 
-async def handle_id(message: Message) -> None:
+async def handle_id(message: Message, users: Optional[UserStore] = None) -> None:
     """Свой telegram id — чтобы было что положить в MISGE_ADMIN_ID."""
-    await message.answer(fmt.chat_id(_user_id(message.from_user)))
+    user_id = _user_id(message.from_user)
+    await message.answer(fmt.chat_id(user_id, await _current_lang(user_id, users)))
 
 
 async def handle_city(
@@ -363,7 +456,7 @@ async def handle_city(
     user_id = message.from_user.id if message.from_user else 0
     current = await _current_city(user_id, users, config)
     await message.answer(
-        fmt.choose_city(cities.name(current)),
+        fmt.choose_city(cities.name(current), await _current_lang(user_id, users)),
         reply_markup=cities_keyboard(cities),
     )
 
@@ -374,11 +467,12 @@ async def handle_city_chosen(
     users: Optional[UserStore] = None,
 ) -> None:
     city_id = _int(callback.data.split(":", 1)[1])
+    user_id = callback.from_user.id if callback.from_user else 0
+    lang = await _current_lang(user_id, users)
     if city_id is None or not cities.known(city_id):
-        await callback.answer("Такого города не знаю")
+        await callback.answer(fmt.city_unknown(lang))
         return
 
-    user_id = callback.from_user.id if callback.from_user else 0
     if users is not None:
         await users.set_city(user_id, city_id)
     else:
@@ -386,7 +480,7 @@ async def handle_city_chosen(
 
     await callback.answer()
     if callback.message:
-        await callback.message.edit_text(fmt.city_chosen(cities.name(city_id)))
+        await callback.message.edit_text(fmt.city_chosen(cities.name(city_id), lang))
 
 
 # --- поиск -----------------------------------------------------------------
@@ -403,36 +497,37 @@ async def handle_query(
     stock_cache: Optional[StockCache] = None,
 ) -> None:
     user_id = _user_id(message.from_user)
+    lang = await _current_lang(user_id, users)
     if user_id in _busy:
-        await message.answer(fmt.busy())
+        await message.answer(fmt.busy(lang))
         return
 
     query = (message.text or "").strip()
     _busy.add(user_id)
     try:
-        notice = await message.answer(fmt.searching(query))
+        notice = await message.answer(fmt.searching(query, lang))
         await count(stats, counters.SEARCH, user_id)
         try:
             outcome = await find_medicines(client, query)
         except QueryTooShort:
             await count(stats, counters.TOO_SHORT)
-            await notice.edit_text(fmt.too_short())
+            await notice.edit_text(fmt.too_short(lang))
             return
         except MisUnavailable:
             await count(stats, counters.UNAVAILABLE)
-            await notice.edit_text(fmt.site_unavailable())
+            await notice.edit_text(fmt.site_unavailable(lang))
             return
         except ParseError as exc:
             await count(stats, counters.UNAVAILABLE)
             log.error("парсер сломался на выдаче поиска: %s", exc)
             if alerts is not None:
                 await alerts.parser_broken("поиск препарата", str(exc))
-            await notice.edit_text(fmt.parser_broken())
+            await notice.edit_text(fmt.parser_broken(lang))
             return
 
         if not outcome.found:
             await count(stats, counters.NOTHING)
-            await notice.edit_text(fmt.nothing_found(query))
+            await notice.edit_text(fmt.nothing_found(query, lang))
             return
 
         await count(stats, counters.FOUND)
@@ -446,9 +541,10 @@ async def handle_query(
             medicines, 0, cities.name(city),
             counts=counts if counts is not None
             else await _counts(client, stock_cache, medicines, 0, city),
+            lang=lang,
         )
         await notice.edit_text(
-            text, reply_markup=medicines_keyboard(buttons, 0, len(medicines))
+            text, reply_markup=medicines_keyboard(buttons, 0, len(medicines), lang)
         )
     finally:
         _busy.discard(user_id)
@@ -470,7 +566,9 @@ async def handle_page(
     if not medicines or not callback.message:
         return
 
-    city = await _current_city(_user_id(callback.from_user), users, config)
+    user_id = _user_id(callback.from_user)
+    city = await _current_city(user_id, users, config)
+    lang = await _current_lang(user_id, users)
     # Если наличие уже считали при поиске — берём оттуда: на сайт за тем же
     # самым второй раз ходить незачем.
     remembered = await _remembered_counts(state, city)
@@ -478,9 +576,10 @@ async def handle_page(
         medicines, offset, cities.name(city),
         counts=remembered if remembered is not None
         else await _counts(client, stock_cache, medicines, offset, city),
+        lang=lang,
     )
     await callback.message.edit_text(
-        text, reply_markup=medicines_keyboard(buttons, offset, len(medicines))
+        text, reply_markup=medicines_keyboard(buttons, offset, len(medicines), lang)
     )
 
 
@@ -499,9 +598,10 @@ async def handle_medicine_chosen(
 ) -> None:
     medicine_hash = callback.data.split(":", 1)[1]
     user_id = _user_id(callback.from_user)
+    lang = await _current_lang(user_id, users)
 
     if user_id in _busy:
-        await callback.answer(fmt.busy())
+        await callback.answer(fmt.busy(lang))
         return
     await callback.answer()
 
@@ -514,14 +614,14 @@ async def handle_medicine_chosen(
         stocks = await find_stocks(client, stock_cache, medicine_hash, city=city)
     except MisUnavailable:
         await count(stats, counters.UNAVAILABLE)
-        await callback.message.answer(fmt.site_unavailable())
+        await callback.message.answer(fmt.site_unavailable(lang))
         return
     except ParseError as exc:
         await count(stats, counters.UNAVAILABLE)
         log.error("парсер сломался на выдаче аптек: %s", exc)
         if alerts is not None:
             await alerts.parser_broken("наличие в аптеках", str(exc))
-        await callback.message.answer(fmt.parser_broken())
+        await callback.message.answer(fmt.parser_broken(lang))
         return
     finally:
         _busy.discard(user_id)
@@ -534,7 +634,7 @@ async def handle_medicine_chosen(
         # аналогов тут не предлагаем: подписываться на заведомо пустой поиск
         # незачем, сперва пусть выберут город.
         await callback.message.answer(
-            fmt.nothing_everywhere(), reply_markup=cities_keyboard(cities)
+            fmt.nothing_everywhere(lang), reply_markup=cities_keyboard(cities)
         )
         return
 
@@ -546,7 +646,9 @@ async def handle_medicine_chosen(
             medicine_hash, city,
             watching=watches is not None,
             generic_hash=await _generic_of(state, medicine_hash),
+            lang=lang,
         ),
+        lang=lang,
     )
 
 
@@ -557,6 +659,7 @@ async def _answer_with_addresses(
     client: MisClient,
     cache: Optional[PharmacyCache],
     buttons: Optional[InlineKeyboardMarkup] = None,
+    lang: str = i18n.DEFAULT,
 ) -> None:
     """Сначала цены, потом адреса.
 
@@ -570,7 +673,7 @@ async def _answer_with_addresses(
 
     cached = await cache.get_many(wanted) if cache is not None else {}
     sent = await message.answer(
-        fmt.stocks_message(stocks, city_name, cached),
+        fmt.stocks_message(stocks, city_name, cached, lang),
         disable_web_page_preview=True,
         reply_markup=buttons,
     )
@@ -584,7 +687,7 @@ async def _answer_with_addresses(
 
     try:
         await sent.edit_text(
-            fmt.stocks_message(stocks, city_name, resolved),
+            fmt.stocks_message(stocks, city_name, resolved, lang),
             disable_web_page_preview=True,
             reply_markup=buttons,
         )
@@ -608,6 +711,20 @@ async def _current_city(
     if chosen is not None and chosen != EVERYWHERE:
         return chosen
     return config.default_city
+
+
+async def _chosen_lang(user_id: int, users: Optional[UserStore]) -> Optional[str]:
+    """Что человек выбрал сам. None — ещё не выбирал, и это повод спросить."""
+    chosen = (
+        await users.get_language(user_id) if users is not None
+        else _lang_fallback.get(user_id)
+    )
+    return chosen if chosen and i18n.known(chosen) else None
+
+
+async def _current_lang(user_id: int, users: Optional[UserStore]) -> str:
+    """Язык интерфейса. Не выбран — русский: на нём бот жил до появления выбора."""
+    return await _chosen_lang(user_id, users) or i18n.DEFAULT
 
 
 async def _sorted_by_stock(
@@ -753,11 +870,15 @@ def build_router() -> Router:
     router.message.register(handle_help, Command("help"))
     router.message.register(handle_about, Command("about"))
     router.message.register(handle_city, Command("city"))
+    router.message.register(handle_language, Command("language"))
     router.message.register(handle_stats, Command("stats"))
     router.message.register(handle_id, Command("id"))
     router.message.register(handle_watching, Command("watching"))
     router.message.register(handle_query, F.text & ~F.text.startswith("/"))
 
+    router.callback_query.register(
+        handle_language_chosen, F.data.startswith(f"{LANGUAGE_PREFIX}:")
+    )
     router.callback_query.register(handle_city_chosen, F.data.startswith(f"{CITY_PREFIX}:"))
     router.callback_query.register(handle_page, F.data.startswith(f"{PAGE_PREFIX}:"))
     router.callback_query.register(handle_watch, F.data.startswith(f"{WATCH_PREFIX}:"))
@@ -814,7 +935,7 @@ async def run(config: Config) -> None:
                 worker = asyncio.create_task(
                     run_forever(
                         client, stock_cache, watches,
-                        _notifier(bot, cities),
+                        _notifier(bot, cities, users),
                     )
                 )
                 try:
@@ -836,17 +957,20 @@ async def run(config: Config) -> None:
                     await bot.session.close()
 
 
-def _notifier(bot: Bot, cities: CityDirectory):
+def _notifier(bot: Bot, cities: CityDirectory, users: Optional[UserStore] = None):
     """Отправка уведомления по подписке.
 
     Заблокировавший бота пользователь — обычное дело, а не повод остановить
     обход остальных подписок.
     """
     async def notify(watch, reason: str, stocks) -> None:
+        # Уведомление приходит через сутки после подписки, в отдельном
+        # сообщении, — язык надо взять из настроек, а не из разговора.
+        lang = await _current_lang(watch.user_id, users)
         try:
             await bot.send_message(
                 watch.user_id,
-                fmt.watch_news(watch, reason, stocks, cities.name(watch.city)),
+                fmt.watch_news(watch, reason, stocks, cities.name(watch.city), lang),
                 disable_web_page_preview=True,
             )
         except TelegramForbiddenError:

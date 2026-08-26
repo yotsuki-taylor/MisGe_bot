@@ -24,12 +24,20 @@ from misbot.bot import (
     _busy,
     _city_fallback,
     _current_city,
+    _current_lang,
+    _lang_fallback,
     _sorted_by_stock,
     _recall,
     _remember,
     cities_keyboard,
     handle_analogues,
+    handle_city,
     handle_city_chosen,
+    handle_help,
+    handle_about,
+    handle_language,
+    handle_language_chosen,
+    handle_start,
     handle_medicine_chosen,
     handle_page,
     handle_query,
@@ -37,8 +45,11 @@ from misbot.bot import (
     handle_unwatch,
     handle_watch,
     handle_watching,
+    language_keyboard,
     medicines_keyboard,
+    LANGUAGE_PREFIX,
 )
+from misbot import i18n
 from misbot.config import Config
 from misbot.locations import EVERYWHERE, FALLBACK_CITIES, CityDirectory
 from misbot.mis_client import MisUnavailable
@@ -163,9 +174,11 @@ async def users(tmp_path):
 def clean_globals():
     _busy.clear()
     _city_fallback.clear()
+    _lang_fallback.clear()
     yield
     _busy.clear()
     _city_fallback.clear()
+    _lang_fallback.clear()
 
 
 class TestQuery:
@@ -824,3 +837,131 @@ class TestStockFirstOrder:
         await handle_page(callback, state, cities, config, users, client=client)
 
         assert len(client.pharmacy_calls) > before, "для другого города числа те же не годятся"
+
+
+class TestLanguage:
+    """Выбор языка на старте и по /language."""
+
+    async def test_start_asks_a_new_user_for_a_language(self, users, config):
+        message = FakeMessage("/start")
+        await handle_start(message, None, users)
+
+        answer = message.replies[0]
+        assert "აირჩიეთ ენა" in answer.text
+        assert answer.markup is not None
+
+    async def test_start_greets_those_who_already_chose(self, users, config):
+        await users.set_language(1, i18n.KA)
+        message = FakeMessage("/start")
+        await handle_start(message, None, users)
+
+        assert "გამარჯობა" in message.replies[0].text
+
+    async def test_the_keyboard_offers_russian_and_georgian(self):
+        keyboard = language_keyboard()
+        labels = [b.text for row in keyboard.inline_keyboard for b in row]
+        assert labels == ["Русский", "ქართული"]
+
+    async def test_english_is_not_offered_yet(self):
+        keyboard = language_keyboard()
+        targets = [b.callback_data for row in keyboard.inline_keyboard for b in row]
+        assert f"{LANGUAGE_PREFIX}:{i18n.EN}" not in targets
+
+    async def test_choosing_saves_and_greets_in_that_language(self, users):
+        callback = FakeCallback(f"{LANGUAGE_PREFIX}:{i18n.KA}")
+        await handle_language_chosen(callback, users)
+
+        assert await users.get_language(1) == i18n.KA
+        assert "ენა: <b>ქართული</b>" in callback.message.edits[0]
+        assert "გამარჯობა" in callback.message.replies[0].text
+
+    async def test_an_unknown_language_is_ignored(self, users):
+        callback = FakeCallback(f"{LANGUAGE_PREFIX}:xx")
+        await handle_language_chosen(callback, users)
+
+        assert await users.get_language(1) is None
+        assert callback.message.edits == []
+
+    async def test_the_command_offers_the_keyboard(self, users):
+        message = FakeMessage("/language")
+        await handle_language(message, users)
+        assert message.replies[0].markup is not None
+
+    async def test_the_language_can_be_switched_back(self, users):
+        await handle_language_chosen(FakeCallback(f"{LANGUAGE_PREFIX}:{i18n.KA}"), users)
+        await handle_language_chosen(FakeCallback(f"{LANGUAGE_PREFIX}:{i18n.RU}"), users)
+        assert await users.get_language(1) == i18n.RU
+
+    async def test_russian_stays_the_default(self, users):
+        assert await _current_lang(1, users) == i18n.RU
+
+
+class TestGeorgianInterface:
+    """Бот целиком по-грузински: и подписи, и контент с сайта."""
+
+    @pytest.fixture
+    async def georgian(self, tmp_path):
+        async with UserStore(tmp_path / "ka.sqlite3") as store:
+            await store.set_language(1, i18n.KA)
+            yield store
+
+    async def test_the_search_answers_in_georgian(self, state, cities, config, georgian):
+        message = FakeMessage("нурофен")
+        await handle_query(message, state, FakeClient(), cities, config, users=georgian)
+
+        assert "მოიძებნა" in message.replies[0].text
+
+    async def test_medicine_names_are_not_transliterated(
+        self, state, cities, config, georgian
+    ):
+        message = FakeMessage("нурофен")
+        await handle_query(message, state, FakeClient(), cities, config, users=georgian)
+
+        text = message.replies[0].text
+        assert "ნუროფენ" in text, "название должно остаться как на сайте"
+        assert "Нурофен" not in text
+
+    async def test_pharmacies_keep_their_georgian_names(
+        self, state, cities, config, georgian
+    ):
+        medicines = parse_search(FOUND)
+        await _remember(state, medicines)
+        callback = FakeCallback(f"{MEDICINE_PREFIX}:{medicines[0].hash}")
+        await handle_medicine_chosen(
+            callback, state, FakeClient(), cities, config, users=georgian
+        )
+
+        text = callback.message.replies[0].text
+        assert "აფთიაქი" in text
+        assert "Aptiaqi" not in text, "латиница нужна тем, кто не читает грузиницу"
+
+    async def test_paging_buttons_are_translated(self, state, cities, config, georgian):
+        message = FakeMessage("нурофен")
+        await handle_query(message, state, FakeClient(), cities, config, users=georgian)
+
+        labels = [
+            b.text
+            for row in message.replies[0].markup.inline_keyboard
+            for b in row
+        ]
+        assert "კიდევ →" in labels
+
+    async def test_the_city_prompt_is_translated(self, cities, config, georgian):
+        message = FakeMessage("/city")
+        await handle_city(message, cities, config, georgian)
+        assert "აირჩიეთ ქალაქი" in message.replies[0].text
+
+    async def test_help_and_about_are_translated(self, config, georgian):
+        help_message = FakeMessage("/help")
+        await handle_help(help_message, georgian)
+        about_message = FakeMessage("/about")
+        await handle_about(about_message, config, georgian)
+
+        assert "ბრძანებები" in help_message.replies[0].text
+        assert "კონფიდენციალურობა" in about_message.replies[0].text
+
+    async def test_a_russian_user_still_gets_russian(self, state, cities, config, users):
+        message = FakeMessage("нурофен")
+        await handle_query(message, state, FakeClient(), cities, config, users=users)
+
+        assert "Нашлось" in message.replies[0].text

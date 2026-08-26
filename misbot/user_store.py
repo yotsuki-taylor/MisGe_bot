@@ -27,8 +27,17 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
     user_id    INTEGER PRIMARY KEY,
     city       INTEGER NOT NULL,
+    language   TEXT NOT NULL DEFAULT '',
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+"""
+
+NO_CITY = 0
+"""Город, который ставится строке, созданной ради языка.
+
+Ноль — «не выбран»: bot.py подставляет вместо него город по умолчанию. Колонка
+NOT NULL и без значения по умолчанию, а выбирать за человека город только потому,
+что он выбрал язык, неправильно.
 """
 
 
@@ -45,8 +54,24 @@ class UserStore:
         await self._connection.execute("PRAGMA journal_mode=WAL")
         await self._connection.execute("PRAGMA busy_timeout=5000")
         await self._connection.executescript(SCHEMA)
+        await self._add_language_column()
         await self._connection.commit()
         return self
+
+    async def _add_language_column(self) -> None:
+        """Колонка языка в базе, созданной до появления выбора языка.
+
+        CREATE TABLE IF NOT EXISTS готовую таблицу не трогает, так что у всех,
+        кто уже пользовался ботом, колонки нет и записать язык было бы некуда.
+        """
+        cursor = await self._connection.execute("PRAGMA table_info(users)")
+        columns = {row["name"] for row in await cursor.fetchall()}
+        await cursor.close()
+        if "language" not in columns:
+            log.info("добавляю колонку language в таблицу пользователей")
+            await self._connection.execute(
+                "ALTER TABLE users ADD COLUMN language TEXT NOT NULL DEFAULT ''"
+            )
 
     async def close(self) -> None:
         if self._connection is not None:
@@ -81,6 +106,33 @@ class UserStore:
             "ON CONFLICT(user_id) DO UPDATE SET city = excluded.city, "
             "updated_at = excluded.updated_at",
             (user_id, city),
+        )
+        await self._connection.commit()
+
+    async def get_language(self, user_id: int) -> Optional[str]:
+        """Выбранный язык или None, если человек его ещё не выбирал."""
+        if self._connection is None:
+            return None
+
+        cursor = await self._connection.execute(
+            "SELECT language FROM users WHERE user_id = ?", (user_id,)
+        )
+        row = await cursor.fetchone()
+        await cursor.close()
+        if row is None:
+            return None
+        return row["language"] or None
+
+    async def set_language(self, user_id: int, language: str) -> None:
+        if self._connection is None:
+            return
+
+        await self._connection.execute(
+            "INSERT INTO users (user_id, city, language, updated_at) "
+            "VALUES (?, ?, ?, datetime('now')) "
+            "ON CONFLICT(user_id) DO UPDATE SET language = excluded.language, "
+            "updated_at = excluded.updated_at",
+            (user_id, NO_CITY, language),
         )
         await self._connection.commit()
 

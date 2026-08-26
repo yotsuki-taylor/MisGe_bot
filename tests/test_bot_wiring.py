@@ -136,7 +136,8 @@ class TestWiring:
         assert client.searches == ["nurofen"], "запрос не доехал до клиента mis.ge"
         assert any("Нашлось" in text for text in session.texts)
 
-    async def test_start_answers(self, bot, dispatcher, session):
+    async def test_start_asks_for_a_language_first(self, bot, dispatcher, session):
+        # Приветствие надо на чём-то писать, а угадывать язык неоткуда.
         await dispatcher.feed_update(
             bot,
             message_update("/start"),
@@ -144,7 +145,7 @@ class TestWiring:
             cities=CityDirectory(dict(FALLBACK_CITIES)),
             config=Config(token=FAKE_TOKEN),
         )
-        assert any("ищу лекарства" in text for text in session.texts)
+        assert any("აირჩიეთ ენა" in text for text in session.texts)
 
     async def test_about_uses_the_configured_contact(self, bot, dispatcher, session):
         await dispatcher.feed_update(
