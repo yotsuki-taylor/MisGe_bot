@@ -130,3 +130,23 @@ class TestEveryTextRenders:
         assert "10" in fmt.watch_limit(10, lang)
         assert "42" in fmt.chat_id(42, lang)
         assert "t.me/bot" in fmt.about_text("t.me/bot", lang)
+
+
+class TestNothingFound:
+    """Подсказка про международное название — самое полезное, что тут можно сказать."""
+
+    @pytest.mark.parametrize("lang", i18n.SUPPORTED)
+    def test_suggests_the_international_name(self, lang):
+        assert "cetirizine" in fmt.nothing_found("зиртек", lang)
+
+    @pytest.mark.parametrize("lang", i18n.SUPPORTED)
+    def test_still_suggests_the_active_ingredient(self, lang):
+        text = i18n.STRINGS["nothing_found"][lang]
+        assert "ибупрофен" in text or "იბუპროფენი" in text
+
+    @pytest.mark.parametrize("lang", i18n.SUPPORTED)
+    def test_repeats_what_was_asked(self, lang):
+        assert "зиртек" in fmt.nothing_found("зиртек", lang)
+
+    def test_the_query_is_escaped(self):
+        assert "&lt;b&gt;" in fmt.nothing_found("<b>x</b>")
