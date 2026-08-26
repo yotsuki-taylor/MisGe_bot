@@ -66,6 +66,52 @@ async def count_by_medicine(
     }
 
 
+MAX_COUNTED = 3 * MAX_MEDICINES_PER_REQUEST
+"""Сколько препаратов готовы посчитать ради сортировки.
+
+Наличие приходит пакетами по тринадцать, и каждый пакет — секунда по нашему же
+rate-limit. Три секунды ожидания за то, чтобы имеющееся в аптеках оказалось
+наверху, — разумный размен; шестнадцать секунд на две сотни аналогов — уже нет.
+"""
+
+
+async def count_all(
+    client: MisClient,
+    cache: Optional[StockCache],
+    medicines: Sequence[Medicine],
+    *,
+    city: int = 0,
+) -> Dict[str, int]:
+    """Наличие для всего списка, пакетами по тринадцать хешей.
+
+    Нужно, чтобы отсортировать выдачу: решать, что показывать выше, можно только
+    зная про все препараты сразу, а не про видимую страницу.
+    """
+    counts: Dict[str, int] = {}
+    wanted = [m for m in medicines if m.hash]
+    for start in range(0, len(wanted), MAX_MEDICINES_PER_REQUEST):
+        batch = wanted[start:start + MAX_MEDICINES_PER_REQUEST]
+        counts.update(await count_by_medicine(client, cache, batch, city=city))
+    return counts
+
+
+def in_stock_first(
+    medicines: Sequence[Medicine],
+    counts: Optional[Dict[str, int]],
+) -> List[Medicine]:
+    """Сначала то, что есть в аптеках, потом остальное.
+
+    Сортировка стабильная, поэтому внутри обеих групп сохраняется порядок сайта:
+    он не случайный — там рядом стоят разные фасовки одного препарата.
+
+    Без чисел (счёт не удался или список слишком длинный) порядок не трогаем:
+    выдумывать его на неполных данных хуже, чем оставить как есть.
+    """
+    if not counts:
+        return list(medicines)
+    return sorted(medicines, key=lambda medicine: 0 if counts.get(medicine.hash) else 1)
+
+
 async def find_stocks(
     client: MisClient,
     cache: Optional[StockCache],

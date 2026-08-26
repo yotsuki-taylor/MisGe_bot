@@ -24,6 +24,7 @@ from misbot.bot import (
     _busy,
     _city_fallback,
     _current_city,
+    _sorted_by_stock,
     _recall,
     _remember,
     cities_keyboard,
@@ -43,6 +44,7 @@ from misbot.locations import EVERYWHERE, FALLBACK_CITIES, CityDirectory
 from misbot.mis_client import MisUnavailable
 from misbot.parser import parse_search
 from misbot.stats import Stats
+from misbot.stocks import MAX_COUNTED, count_all, in_stock_first
 from misbot.user_store import UserStore
 from misbot.watches import MAX_PER_USER, WatchStore
 
@@ -759,3 +761,66 @@ class TestWholeCountry:
         # «нет в наличии» у каждой позиции.
         await handle_city_chosen(FakeCallback(f"{CITY_PREFIX}:{EVERYWHERE}"), cities, users)
         assert await _current_city(1, users, config) != EVERYWHERE
+
+
+class TestStockFirstOrder:
+    """Что есть в аптеках — наверх, чего нет — в конец."""
+
+    async def test_the_page_starts_with_what_is_in_stock(self, state, cities, config):
+        message = FakeMessage("нурофен")
+        await handle_query(message, state, FakeClient(), cities, config)
+
+        text = message.replies[0].text
+        assert text.index("есть в") < text.index("нет в наличии")
+
+    async def test_paging_keeps_the_sorted_order(self, state, cities, config):
+        # Порядок запоминается вместе с выдачей, иначе вторая страница показала бы
+        # препараты из исходной, несортированной последовательности.
+        message = FakeMessage("нурофен")
+        await handle_query(message, state, FakeClient(), cities, config)
+        remembered = [m.hash for m in await _recall(state)]
+
+        counts = await count_all(FakeClient(), None, parse_search(FOUND), city=1)
+        expected = [m.hash for m in in_stock_first(parse_search(FOUND), counts)]
+        assert remembered == expected
+
+    async def test_paging_does_not_ask_the_site_again(self, state, cities, config):
+        client = FakeClient()
+        await handle_query(FakeMessage("нурофен"), state, client, cities, config)
+        asked_while_searching = len(client.pharmacy_calls)
+
+        callback = FakeCallback(f"{PAGE_PREFIX}:8")
+        await handle_page(callback, state, cities, config, client=client)
+
+        assert len(client.pharmacy_calls) == asked_while_searching
+
+    async def test_a_long_list_keeps_the_site_order(self, state, cities, config):
+        # Две сотни аналогов стоили бы шестнадцати запросов — не тот размен.
+        many = parse_search(FOUND) * 2
+        assert len(many) > MAX_COUNTED
+
+        medicines, counts = await _sorted_by_stock(FakeClient(), None, many, 1)
+
+        assert counts is None
+        assert medicines == many
+
+    async def test_a_failed_count_keeps_the_site_order(self, state, cities, config):
+        client = FakeClient()
+        client.fail_with["pharmacies"] = MisUnavailable("нет связи")
+        medicines = parse_search(FOUND)
+
+        ordered, counts = await _sorted_by_stock(client, None, medicines, 1)
+
+        assert counts is None
+        assert ordered == medicines
+
+    async def test_counts_are_dropped_when_the_city_changes(self, state, cities, config, users):
+        client = FakeClient()
+        await handle_query(FakeMessage("нурофен"), state, client, cities, config)
+        await handle_city_chosen(FakeCallback(f"{CITY_PREFIX}:5"), cities, users)
+
+        before = len(client.pharmacy_calls)
+        callback = FakeCallback(f"{PAGE_PREFIX}:8")
+        await handle_page(callback, state, cities, config, users, client=client)
+
+        assert len(client.pharmacy_calls) > before, "для другого города числа те же не годятся"

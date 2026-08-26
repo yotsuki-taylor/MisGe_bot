@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from logging.handlers import RotatingFileHandler
-from typing import Dict, List, Optional, Sequence, Set  # noqa: F401
+from typing import Dict, List, Optional, Sequence, Set, Tuple  # noqa: F401
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
@@ -42,7 +42,7 @@ from .pharmacies import cached_only, resolve
 from .search import find_medicines
 from .stats import Stats, count
 from .stock_cache import StockCache
-from .stocks import count_by_medicine, find_stocks
+from .stocks import MAX_COUNTED, count_all, count_by_medicine, find_stocks, in_stock_first
 from .user_store import UserStore
 from .watcher import best_price, run_forever
 from .watches import MAX_PER_USER, WatchStore
@@ -52,6 +52,12 @@ log = logging.getLogger(__name__)
 CITY_KEY = "city"
 RESULTS_KEY = "results"
 """Последняя выдача: список [хеш, название] — чтобы листать без нового запроса."""
+
+COUNTS_KEY = "counts"
+"""Наличие, посчитанное при поиске: хеш препарата → в скольких он аптеках."""
+
+COUNTS_CITY_KEY = "counts_city"
+"""Город, для которого считали: в другом городе числа уже не те."""
 
 MEDICINE_PREFIX = "m"
 CITY_PREFIX = "c"
@@ -329,12 +335,14 @@ async def handle_analogues(
         await callback.message.answer(fmt.no_analogues())
         return
 
-    await _remember(state, medicines)
     city = await _current_city(user_id, users, config)
+    medicines, counts = await _sorted_by_stock(client, stock_cache, medicines, city)
+    await _remember(state, medicines, counts, city)
     text, buttons = fmt.medicines_page(
         medicines, 0, cities.name(city),
         title=fmt.analogues_title(generic, len(medicines)),
-        counts=await _counts(client, stock_cache, medicines, 0, city),
+        counts=counts if counts is not None
+        else await _counts(client, stock_cache, medicines, 0, city),
     )
     await callback.message.answer(
         text, reply_markup=medicines_keyboard(buttons, 0, len(medicines))
@@ -429,14 +437,18 @@ async def handle_query(
 
         await count(stats, counters.FOUND)
 
-        await _remember(state, outcome.medicines)
         city = await _current_city(user_id, users, config)
+        medicines, counts = await _sorted_by_stock(
+            client, stock_cache, outcome.medicines, city
+        )
+        await _remember(state, medicines, counts, city)
         text, buttons = fmt.medicines_page(
-            outcome.medicines, 0, cities.name(city),
-            counts=await _counts(client, stock_cache, outcome.medicines, 0, city),
+            medicines, 0, cities.name(city),
+            counts=counts if counts is not None
+            else await _counts(client, stock_cache, medicines, 0, city),
         )
         await notice.edit_text(
-            text, reply_markup=medicines_keyboard(buttons, 0, len(outcome.medicines))
+            text, reply_markup=medicines_keyboard(buttons, 0, len(medicines))
         )
     finally:
         _busy.discard(user_id)
@@ -459,9 +471,13 @@ async def handle_page(
         return
 
     city = await _current_city(_user_id(callback.from_user), users, config)
+    # Если наличие уже считали при поиске — берём оттуда: на сайт за тем же
+    # самым второй раз ходить незачем.
+    remembered = await _remembered_counts(state, city)
     text, buttons = fmt.medicines_page(
         medicines, offset, cities.name(city),
-        counts=await _counts(client, stock_cache, medicines, offset, city),
+        counts=remembered if remembered is not None
+        else await _counts(client, stock_cache, medicines, offset, city),
     )
     await callback.message.edit_text(
         text, reply_markup=medicines_keyboard(buttons, offset, len(medicines))
@@ -594,8 +610,52 @@ async def _current_city(
     return config.default_city
 
 
-async def _remember(state: FSMContext, medicines: Sequence[Medicine]) -> None:
+async def _sorted_by_stock(
+    client: Optional[MisClient],
+    stock_cache: Optional[StockCache],
+    medicines: Sequence[Medicine],
+    city: int,
+) -> Tuple[List[Medicine], Optional[Dict[str, int]]]:
+    """Выдача с наличными препаратами наверху и числа, которыми это посчитано.
+
+    Отсортировать список можно только зная про все препараты сразу, поэтому
+    наличие спрашивается для всей выдачи, а не для видимой страницы. Это до трёх
+    запросов вместо одного — на длинных списках (аналоги бывают и по две сотни)
+    размен перестаёт окупаться, и тогда порядок остаётся тем, что дал сайт.
+
+    Числа возвращаются наружу, чтобы их положили в state: при листании они
+    избавляют от повторного похода на сайт.
+    """
+    if client is None or len(medicines) > MAX_COUNTED:
+        return list(medicines), None
+
+    try:
+        counts = await count_all(client, stock_cache, medicines, city=city)
+    except (MisUnavailable, ParseError) as exc:
+        # Без чисел список всё ещё полезен — просто не отсортирован.
+        log.warning("не посчитал наличие для выдачи: %s", exc)
+        return list(medicines), None
+
+    return in_stock_first(medicines, counts), counts
+
+
+async def _remembered_counts(state: FSMContext, city: int) -> Optional[Dict[str, int]]:
+    """Числа, посчитанные при поиске, — если город с тех пор не сменился."""
+    data = await state.get_data()
+    counts = data.get(COUNTS_KEY)
+    if counts is None or data.get(COUNTS_CITY_KEY) != city:
+        return None
+    return counts
+
+
+async def _remember(
+    state: FSMContext,
+    medicines: Sequence[Medicine],
+    counts: Optional[Dict[str, int]] = None,
+    city: Optional[int] = None,
+) -> None:
     """Кладём только то, что нужно для листания: хранилище может стать внешним."""
+    await state.update_data(**{COUNTS_KEY: counts, COUNTS_CITY_KEY: city})
     await state.update_data(**{RESULTS_KEY: [
         {
             "hash": medicine.hash,

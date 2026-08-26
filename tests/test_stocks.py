@@ -9,7 +9,7 @@ import pytest
 from misbot.mis_client import MisUnavailable
 from misbot.parser import ParseError, parse_pharmacies, parse_search
 from misbot.stock_cache import StockCache
-from misbot.stocks import count_by_medicine, find_stocks
+from misbot.stocks import MAX_COUNTED, count_all, count_by_medicine, find_stocks, in_stock_first
 
 FIXTURES = Path(__file__).parent / "fixtures"
 PHARMACIES = (FIXTURES / "pharmacies_nurofen_tbilisi.html").read_text(encoding="utf-8")
@@ -228,3 +228,72 @@ class TestFindStocks:
     async def test_works_without_a_cache(self):
         client = FakeClient()
         assert len(await find_stocks(client, None, HASH, city=1)) == 11
+
+
+class TestCountAll:
+    @staticmethod
+    def medicines():
+        return parse_search((FIXTURES / "search_nurofen.html").read_text(encoding="utf-8"))
+
+    async def test_covers_every_medicine(self, cache):
+        all_of_them = self.medicines()
+        counts = await count_all(FakeClient(), cache, all_of_them, city=1)
+
+        assert set(counts) == {m.hash for m in all_of_them}
+
+    async def test_asks_in_batches_the_site_accepts(self, cache):
+        client = FakeClient()
+        await count_all(client, cache, self.medicines(), city=1)
+
+        # 29 препаратов — три пакета по тринадцать и меньше.
+        assert len(client.calls) == 3
+        assert all(len(call[0]) <= 13 for call in client.calls)
+
+    async def test_a_second_run_is_free(self, cache):
+        client = FakeClient()
+        await count_all(client, cache, self.medicines(), city=1)
+        await count_all(client, cache, self.medicines(), city=1)
+
+        assert len(client.calls) == 3, "второй проход должен идти из кеша"
+
+    async def test_empty_list_asks_nothing(self, cache):
+        client = FakeClient()
+        assert await count_all(client, cache, [], city=1) == {}
+        assert client.calls == []
+
+
+class TestInStockFirst:
+    @staticmethod
+    def medicines():
+        return parse_search((FIXTURES / "search_nurofen.html").read_text(encoding="utf-8"))
+
+    def test_available_go_up(self):
+        first, second, third = self.medicines()[:3]
+        counts = {first.hash: 0, second.hash: 4, third.hash: 0}
+
+        order = in_stock_first([first, second, third], counts)
+
+        assert order[0] is second
+        assert [m.hash for m in order[1:]] == [first.hash, third.hash]
+
+    def test_the_site_order_survives_inside_the_groups(self):
+        # Рядом стоят разные фасовки одного препарата — порядок не случайный.
+        page = self.medicines()[:6]
+        counts = {m.hash: (2 if index % 2 else 0) for index, m in enumerate(page)}
+
+        order = in_stock_first(page, counts)
+
+        assert [m.hash for m in order[:3]] == [page[1].hash, page[3].hash, page[5].hash]
+        assert [m.hash for m in order[3:]] == [page[0].hash, page[2].hash, page[4].hash]
+
+    def test_without_counts_the_order_is_untouched(self):
+        page = self.medicines()[:5]
+        assert in_stock_first(page, None) == page
+        assert in_stock_first(page, {}) == page
+
+    def test_unknown_medicines_go_last(self):
+        first, second = self.medicines()[:2]
+        assert in_stock_first([first, second], {second.hash: 1})[0] is second
+
+    def test_the_budget_is_three_requests(self):
+        assert MAX_COUNTED == 39
