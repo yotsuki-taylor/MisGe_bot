@@ -857,15 +857,17 @@ class TestLanguage:
 
         assert "გამარჯობა" in message.replies[0].text
 
-    async def test_the_keyboard_offers_russian_and_georgian(self):
+    async def test_the_keyboard_offers_every_language(self):
         keyboard = language_keyboard()
         labels = [b.text for row in keyboard.inline_keyboard for b in row]
-        assert labels == ["Русский", "ქართული"]
+        assert labels == ["Русский", "ქართული", "English"]
 
-    async def test_english_is_not_offered_yet(self):
-        keyboard = language_keyboard()
-        targets = [b.callback_data for row in keyboard.inline_keyboard for b in row]
-        assert f"{LANGUAGE_PREFIX}:{i18n.EN}" not in targets
+    async def test_english_can_be_chosen(self, users):
+        callback = FakeCallback(f"{LANGUAGE_PREFIX}:{i18n.EN}")
+        await handle_language_chosen(callback, users)
+
+        assert await users.get_language(1) == i18n.EN
+        assert "Hi!" in callback.message.replies[0].text
 
     async def test_choosing_saves_and_greets_in_that_language(self, users):
         callback = FakeCallback(f"{LANGUAGE_PREFIX}:{i18n.KA}")
@@ -1011,3 +1013,72 @@ class TestSiteBlocked:
         await handle_medicine_chosen(callback, state, client, cities, config)
 
         assert "не пускает" in callback.message.replies[0].text
+
+
+class TestEnglishInterface:
+    """Бот целиком по-английски: и подписи, и контент с сайта."""
+
+    @pytest.fixture
+    async def english(self, tmp_path):
+        async with UserStore(tmp_path / "en.sqlite3") as store:
+            await store.set_language(1, i18n.EN)
+            yield store
+
+    async def test_the_search_answers_in_english(self, state, cities, config, english):
+        message = FakeMessage("нурофен")
+        await handle_query(message, state, FakeClient(), cities, config, users=english)
+
+        text = message.replies[0].text
+        assert "Found:" in text
+        assert "Нашлось" not in text
+
+    async def test_medicine_names_are_readable(self, state, cities, config, english):
+        message = FakeMessage("нурофен")
+        await handle_query(message, state, FakeClient(), cities, config, users=english)
+
+        text = message.replies[0].text
+        assert "coated tablets" in text
+        assert "pcs." in text
+        assert "ნუროფენ" not in text, "англоязычному грузиница не поможет"
+
+    async def test_availability_is_in_english(self, state, cities, config, english):
+        message = FakeMessage("нурофен")
+        await handle_query(message, state, FakeClient(), cities, config, users=english)
+
+        text = message.replies[0].text
+        assert "in 9 pharmacies" in text or "out of stock" in text
+        assert "аптеках" not in text
+
+    async def test_pharmacy_lines_are_in_english(self, state, cities, config, english):
+        medicines = parse_search(FOUND)
+        await _remember(state, medicines)
+        callback = FakeCallback(f"{MEDICINE_PREFIX}:{medicines[0].hash}")
+        await handle_medicine_chosen(
+            callback, state, FakeClient(), cities, config, users=english
+        )
+
+        text = callback.message.replies[0].text
+        assert "updated" in text
+        assert "обновлено" not in text
+        assert "daily" in text, "часы работы тоже переводятся"
+
+    async def test_buttons_are_translated(self, state, cities, config, english):
+        message = FakeMessage("нурофен")
+        await handle_query(message, state, FakeClient(), cities, config, users=english)
+
+        labels = [b.text for row in message.replies[0].markup.inline_keyboard for b in row]
+        assert "more →" in labels
+
+    async def test_help_and_about_are_translated(self, config, english):
+        help_message = FakeMessage("/help")
+        await handle_help(help_message, english)
+        about_message = FakeMessage("/about")
+        await handle_about(about_message, config, english)
+
+        assert "Commands" in help_message.replies[0].text
+        assert "Privacy" in about_message.replies[0].text
+
+    async def test_the_city_prompt_is_translated(self, cities, config, english):
+        message = FakeMessage("/city")
+        await handle_city(message, cities, config, english)
+        assert "Choose a city" in message.replies[0].text

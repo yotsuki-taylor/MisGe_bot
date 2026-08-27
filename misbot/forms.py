@@ -22,7 +22,8 @@ from __future__ import annotations
 import re
 from typing import Dict
 
-from .translit import build_pattern, convert, ka_to_ru
+from . import i18n
+from .translit import build_pattern, convert, ka_to_latin_candidates, ka_to_ru
 
 # Словосочетания. Длинные проверяются раньше коротких, так что
 # «საინექციო ხსნარის მოსამზადებლად» выиграет у «ხსნარის მოსამზადებლად».
@@ -322,11 +323,12 @@ _CHEMICALS_RE = build_pattern(CHEMICALS)
 _KA_WORD_RE = re.compile(r"[Ⴀ-ჿ]+")
 
 
-def _unit(match: "re.Match") -> str:
+def _unit(match: "re.Match", lang: str = i18n.DEFAULT) -> str:
     """«200მგ» → «200 мг», но «/მლ» → «/мл»: после слеша пробел не нужен."""
     lead = match.group(1)
     space = " " if lead.isdigit() else ""
-    return f"{lead}{space}{UNITS[match.group(2)]}"
+    units = UNITS_EN if lang == i18n.EN else UNITS
+    return f"{lead}{space}{units[match.group(2)]}"
 
 
 def _strip_ending(word: str) -> str:
@@ -341,7 +343,24 @@ def _strip_ending(word: str) -> str:
     return word
 
 
-def _transliterate(text: str, capitalise_every_word: bool) -> str:
+def _letters(word: str, lang: str) -> str:
+    """Слово, которого нет в словаре, — своими буквами.
+
+    Для английского это не побуквенная романизация вывесок (там ფ — это `p`, и
+    вышло бы «Nuropen»), а тот же подбор международного написания, которым мы
+    ищем на сайте: «ნუროფენი» → «nurofen».
+    """
+    if lang == i18n.EN:
+        guesses = ka_to_latin_candidates(word, limit=1)
+        return guesses[0] if guesses else word
+    return ka_to_ru(_strip_ending(word))
+
+
+def _transliterate(
+    text: str,
+    capitalise_every_word: bool,
+    lang: str = i18n.DEFAULT,
+) -> str:
     """Транслитерация того, что не нашлось в словаре.
 
     У брендов и компаний с большой буквы каждое слово — это имена собственные.
@@ -349,7 +368,7 @@ def _transliterate(text: str, capitalise_every_word: bool) -> str:
     описание, а не имя.
     """
     def one(match: "re.Match") -> str:
-        word = ka_to_ru(_strip_ending(match.group(0)))
+        word = _letters(match.group(0), lang)
         if capitalise_every_word:
             return word[:1].upper() + word[1:]
         return word
@@ -357,53 +376,332 @@ def _transliterate(text: str, capitalise_every_word: bool) -> str:
     return _KA_WORD_RE.sub(one, text)
 
 
-def _brand(text: str) -> str:
-    return _transliterate(text, capitalise_every_word=True)
+def _brand(text: str, lang: str = i18n.DEFAULT) -> str:
+    return _transliterate(text, capitalise_every_word=True, lang=lang)
 
 
-def translate_company(text: str) -> str:
+def _brands(lang: str):
+    """Замыкание для `convert`: промежутки между словарными кусками."""
+    return lambda part: _brand(part, lang)
+
+
+def translate_company(text: str, lang: str = i18n.DEFAULT) -> str:
     """Производитель: их сотни, все — имена собственные, переводить нечем."""
     if not text or text.strip() in NO_DATA:
         return ""
-    return _brand(text.strip())
+    if lang == i18n.KA:
+        return text.strip()
+    return _brand(text.strip(), lang)
 
 
-def translate_generic(text: str) -> str:
+def translate_generic(text: str, lang: str = i18n.DEFAULT) -> str:
     """МНН: химию и описания переводим, остальное транслитерируем."""
     if not text or text.strip() in NO_DATA:
         return ""
+    if lang == i18n.KA:
+        return text.strip()
     result = convert(
         text.strip(),
-        CHEMICALS,
+        CHEMICALS_EN if lang == i18n.EN else CHEMICALS,
         _CHEMICALS_RE,
-        gap=lambda part: _transliterate(part, capitalise_every_word=False),
+        gap=lambda part: _transliterate(part, capitalise_every_word=False, lang=lang),
     )
     result = re.sub(r"\s+", " ", result).strip()
     return result[:1].upper() + result[1:]
 
 
-def translate_country(text: str) -> str:
+def translate_country(text: str, lang: str = i18n.DEFAULT) -> str:
     """Страна: список конечный, поэтому переводим целиком."""
     if not text or text.strip() in NO_DATA:
         return ""
-    return convert(text.strip(), COUNTRIES, _COUNTRIES_RE, gap=_brand)
+    if lang == i18n.KA:
+        return text.strip()
+    countries = COUNTRIES_EN if lang == i18n.EN else COUNTRIES
+    return convert(text.strip(), countries, _COUNTRIES_RE, gap=_brands(lang))
 
 
-def translate_dispensing(text: str) -> str:
+def translate_dispensing(text: str, lang: str = i18n.DEFAULT) -> str:
     """Режим отпуска: «III ჯგუფი, გაიცემა რეცეპტის გარეშე» → «III группа, без рецепта»."""
     if not text or text.strip() in NO_DATA:
         return ""
-    return convert(text.strip(), DISPENSING_PHRASES, _DISPENSING_RE, gap=_brand)
+    if lang == i18n.KA:
+        return text.strip()
+    phrases = DISPENSING_PHRASES_EN if lang == i18n.EN else DISPENSING_PHRASES
+    return convert(text.strip(), phrases, _DISPENSING_RE, gap=_brands(lang))
 
 
-def translate_medicine(name: str) -> str:
-    """Название препарата по-русски: форма и упаковка переведены, бренд транслитом."""
+def translate_medicine(name: str, lang: str = i18n.DEFAULT) -> str:
+    """Название препарата: форма и упаковка переведены, бренд транслитом."""
     if not name or not name.strip():
         return ""
+    if lang == i18n.KA:
+        # Сайт грузинский: оригинал понятнее любого перевода обратно.
+        return name.strip()
 
-    text = _UNIT_RE.sub(_unit, name)
-    text = _PACK_RE.sub(lambda m: f", {m.group(1)} шт.", text)
-    text = convert(text, _MEDICINE_TERMS, _PHRASES_RE, gap=_brand)
+    pieces = "pcs." if lang == i18n.EN else "шт."
+    terms = _MEDICINE_TERMS_EN if lang == i18n.EN else _MEDICINE_TERMS
+
+    text = _UNIT_RE.sub(lambda m: _unit(m, lang), name)
+    text = _PACK_RE.sub(lambda m: f", {m.group(1)} {pieces}", text)
+    text = convert(text, terms, _PHRASES_RE, gap=_brands(lang))
 
     text = re.sub(r"\s+", " ", text).strip(" -–—")
     return text[:1].upper() + text[1:]
+
+
+# --- английский слой -------------------------------------------------------
+#
+# Ключи те же грузинские, значения — английские. Держим отдельными словарями, а
+# не парами внутри одного: пары на 232 записи читались бы хуже, чем два списка
+# рядом. За тем, что ключи не разошлись, следит тест.
+
+FORM_PHRASES_EN: Dict[str, str] = {
+    "ფხვნილი საინექციო და საინფუზიო ხსნარის მოსამზადებლად":
+        "powder for solution for injection and infusion",
+    "ფხვნილი საინექციო ხსნარის მოსამზადებლად": "powder for solution for injection",
+    "ფხვნილი საინფუზიო ხსნარის მოსამზადებლად": "powder for solution for infusion",
+    "ფხვნილი ორალური სუსპენზიის მოსამზადებლად": "powder for oral suspension",
+    "ფხვნილი სუსპენზიის მოსამზადებლად": "powder for suspension",
+    "სუსპენზიის მოსამზადებლად": "for suspension",
+    "ფხვნილი ორალური ხსნარის მოსამზადებლად": "powder for oral solution",
+    "გრანულა სუსპენზიის მოსამზადებლად": "granules for suspension",
+    "ლიოფილიზირებული ფხვნილი": "lyophilised powder",
+    "ლიოფილიზატი": "lyophilisate",
+    "საინექციო და საინფუზიო ხსნარის მოსამზადებლად":
+        "for solution for injection and infusion",
+    "საინექციო ხსნარის მოსამზადებლად": "for solution for injection",
+    "ორალური სუსპენზიის მოსამზადებლად": "for oral suspension",
+    "ხსნარის მოსამზადებლად": "for solution",
+    "მოდიფიცირებული გამოთავისუფლების კაფსულა": "modified-release capsules",
+    "მოდიფიცირებული გამოთავისუფლების აბი": "modified-release tablets",
+    "გახანგრძლივებული გამოთავისუფლების აბი": "prolonged-release tablets",
+    "გასტრორეზისტენტული კაფსულა": "gastro-resistant capsules",
+    "გასტრორეზისტენტული აბი": "gastro-resistant tablets",
+    "ნაწლავში ხსნადი აბი": "enteric-coated tablets",
+    "ნაწლავში ხსნადი": "enteric-coated",
+    "შემოგარსული აბი": "coated tablets",
+    "შაქრით დაფარული აბი": "sugar-coated tablets",
+    "ფირწებით დაფარული აბი": "film-coated tablets",
+    "შუშხუნა აბი": "effervescent tablets",
+    "საწუწნი აბი": "lozenges",
+    "რბილი კაფსულა": "soft capsules",
+    "მყარი კაფსულა": "hard capsules",
+    "საღეჭი აბი": "chewable tablets",
+    "ხსნადი აბი": "soluble tablets",
+    "საინექციო და საინფუზიო ხსნარი": "solution for injection and infusion",
+    "საინექციო ხსნარი": "solution for injection",
+    "საინფუზიო ხსნარი": "solution for infusion",
+    "საინექციო სუსპენზია": "suspension for injection",
+    "ორალური სუსპენზია": "oral suspension",
+    "ორალური ხსნარი": "oral solution",
+    "გარეგანი ხსნარი": "solution for external use",
+    "საინჰალაციო ხსნარი": "solution for inhalation",
+    "საინექციო ზეთხსნარი": "oily solution for injection",
+    "ზეთხსნარი": "oily solution",
+    "წყალხსნარი": "aqueous solution",
+    "რექტალური სანთელი": "rectal suppositories",
+    "ვაგინალური სანთელი": "vaginal suppositories",
+    "თვალის წვეთები": "eye drops",
+    "ყურის წვეთები": "ear drops",
+    "ცხვირის წვეთები": "nasal drops",
+    "ორალური წვეთები": "oral drops",
+    "პოლიეთილენის ბოთლი": "polyethylene bottle",
+    "პლასტიკის ფლაკონი": "plastic vial",
+    "პლასტიკის ბოთლი": "plastic bottle",
+    "პლასტიკის": "plastic",
+    "პოლიეთილენის": "polyethylene",
+    "კოლოფი": "box",
+    "ფორთოხლით": "with orange",
+    "ინტეგრირებული ნემსით": "with attached needle",
+    "ფორთოხლის გემოთი": "orange flavour",
+    "მარწყვის გემოთი": "strawberry flavour",
+    "ჟოლოს გემოთი": "raspberry flavour",
+    "ლიმონის გემოთი": "lemon flavour",
+    "საწვეთურით": "with dropper",
+    "გამხსნელი": "solvent",
+    "აბი": "tablets",
+    "კაფსულა": "capsules",
+    "დრაჟე": "dragee",
+    "შუშხუნა": "effervescent",
+    "საწუწნი": "lozenge",
+    "რბილი": "soft",
+    "მყარი": "hard",
+    "ვიტამინი": "vitamin",
+    "კომპლექსი": "complex",
+    "ფხვნილი": "powder",
+    "ხსნარი": "solution",
+    "სუსპენზია": "suspension",
+    "სიროფი": "syrup",
+    "წვეთები": "drops",
+    "სანთელი": "suppositories",
+    "აეროზოლი": "aerosol",
+    "სპრეი": "spray",
+    "გელი": "gel",
+    "კრემი": "cream",
+    "მალამო": "ointment",
+    "გრანულა": "granules",
+    "ფლაკონი": "vial",
+    "ამპულა": "ampoule",
+    "პაკეტი": "sachet",
+    "ბლისტერი": "blister",
+    "ბოთლი": "bottle",
+    "ტუბი": "tube",
+    "კარტრიჯი": "cartridge",
+    "შპრიცი": "syringe",
+    "კალამი": "pen injector",
+    "ნემსით": "with needle",
+    "საინექციო": "for injection",
+    "საინფუზიო": "for infusion",
+    "ორალური": "oral",
+    "რექტალური": "rectal",
+    "ვაგინალური": "vaginal",
+    "გარეგანი": "external",
+    "თვალის": "ophthalmic",
+    "ჰიდროქლორიდი": "hydrochloride",
+    "ინსულინის": "insulin",
+    "ბავშვის": "for children",
+    "გემოთი": "flavour",
+    "მზა": "ready-made",
+    "პლუსი": "plus",
+    "ფორტე": "forte",
+    "ტუბა-საწვეთური": "tube with dropper",
+    "საწვეთური": "dropper",
+    "ტუბა": "tube",
+    "და": "and",
+}
+
+COUNTRIES_EN: Dict[str, str] = {
+    "ინდოეთი": "India",
+    "საქართველო": "Georgia",
+    "რუსეთი": "Russia",
+    "გერმანია": "Germany",
+    "უკრაინა": "Ukraine",
+    "დანია": "Denmark",
+    "დიდი ბრიტანეთი": "United Kingdom",
+    "ესპანეთი": "Spain",
+    "ბელორუსი": "Belarus",
+    "საფრანგეთი": "France",
+    "რუმინეთი": "Romania",
+    "პოლონეთი": "Poland",
+    "აშშ": "USA",
+    "იტალია": "Italy",
+    "სლოვენია": "Slovenia",
+    "ბანგლადეში": "Bangladesh",
+    "უზბეკეთი": "Uzbekistan",
+    "ბულგარეთი": "Bulgaria",
+    "ლატვია": "Latvia",
+    "ბრაზილია": "Brazil",
+    "სომხეთი": "Armenia",
+    "პორტუგალია": "Portugal",
+    "ჩინეთი": "China",
+    "უნგრეთი": "Hungary",
+    "ნიდერლანდები": "Netherlands",
+    "თურქეთი": "Turkey",
+    "კორეა": "Korea",
+    "სამხრეთ კორეა": "South Korea",
+    "ფინეთი": "Finland",
+    "ავსტრია": "Austria",
+    "მაკედონია": "North Macedonia",
+    "ყაზახეთი": "Kazakhstan",
+    "სლოვაკეთი": "Slovakia",
+    "ეგვიპტე": "Egypt",
+    "სერბეთი": "Serbia",
+    "ესტონეთი": "Estonia",
+    "კვიპროსი": "Cyprus",
+    "საბერძნეთი": "Greece",
+    "ხორვატია": "Croatia",
+    "ლიეტუვა": "Lithuania",
+    "კანადა": "Canada",
+    "ჩეხეთი": "Czechia",
+    "ვიეტნამი": "Vietnam",
+    "მოლდოვა": "Moldova",
+    "შვეიცარია": "Switzerland",
+    "შვედეთი": "Sweden",
+    "ისრაელი": "Israel",
+    "იაპონია": "Japan",
+    "ავსტრალია": "Australia",
+    "ბელგია": "Belgium",
+    "ირლანდია": "Ireland",
+    "ნორვეგია": "Norway",
+    "პაკისტანი": "Pakistan",
+    "ირანი": "Iran",
+    "აზერბაიჯანი": "Azerbaijan",
+    "თურქმენეთი": "Turkmenistan",
+    "ყირგიზეთი": "Kyrgyzstan",
+    "ტაივანი": "Taiwan",
+    "ინდონეზია": "Indonesia",
+    "ტაილანდი": "Thailand",
+    "სინგაპური": "Singapore",
+    "არგენტინა": "Argentina",
+    "მექსიკა": "Mexico",
+    "ჩილე": "Chile",
+    "კუბა": "Cuba",
+    "ლიბანი": "Lebanon",
+    "იორდანია": "Jordan",
+    "ალბანეთი": "Albania",
+    "მალტა": "Malta",
+    "ლუქსემბურგი": "Luxembourg",
+    "ბოსნია": "Bosnia",
+    "პოლონეთ": "Poland",
+}
+
+CHEMICALS_EN: Dict[str, str] = {
+    "ასკორბინის მჟავა": "ascorbic acid",
+    "კლავულანის მჟავა": "clavulanic acid",
+    "ფოლიუმის მჟავა": "folic acid",
+    "ჰიდროქლოროთიაზიდი": "hydrochlorothiazide",
+    "ჰიდროქლორიდი": "hydrochloride",
+    "ჰიდროქსიდი": "hydroxide",
+    "ქლორჰექსიდინი": "chlorhexidine",
+    "ფსევდოეფედრინი": "pseudoephedrine",
+    "ეპინეფრინი": "epinephrine",
+    "ჰეპარინი": "heparin",
+    "ჰიდროკორტიზონი": "hydrocortisone",
+    "ქლორიდი": "chloride",
+    "ბიგლუკონატი": "bigluconate",
+    "სულფატი": "sulfate",
+    "ფოსფატი": "phosphate",
+    "აცეტატი": "acetate",
+    "კარბონატი": "carbonate",
+    "ნიტრატი": "nitrate",
+    "მჟავა": "acid",
+    "ნატრიუმი": "sodium",
+    "კალიუმი": "potassium",
+    "კალციუმი": "calcium",
+    "მაგნიუმი": "magnesium",
+    "თუთია": "zinc",
+    "ადამიანის": "human",
+    "ღორის": "porcine",
+    "ბიოსინთეტური": "biosynthetic",
+    "ნახევრადსინთეტური": "semi-synthetic",
+    "მონოკომპონენტური": "monocomponent",
+    "კომბინირებული": "combined",
+    "კრისტალური": "crystalline",
+    "ორფაზიანი": "biphasic",
+    "ხსნადი": "soluble",
+    "იზოფან": "isophane",
+    "ინსულინი": "insulin",
+    "ინსულინ": "insulin",
+    "შპრიცი": "syringe",
+}
+
+DISPENSING_PHRASES_EN: Dict[str, str] = {
+    "გადაუდებელი დახმარებისას გაიცემა ურეცეპტოდ": "in emergencies — without prescription",
+    "გაიცემა რეცეპტის გარეშე": "without prescription",
+    "გაიცემა ფორმა №1 რეცეპტით": "prescription form №1",
+    "გაიცემა ფორმა №2 რეცეპტით": "prescription form №2",
+    "გაიცემა ფორმა №3 რეცეპტით": "prescription form №3",
+    "გაიცემა რეცეპტით": "by prescription",
+    "ურეცეპტოდ": "without prescription",
+    "ჯგუფი": "group",
+}
+
+UNITS_EN: Dict[str, str] = {
+    "მკგ": "mcg",
+    "მგ": "mg",
+    "მლ": "ml",
+    "სე": "IU",
+    "გ": "g",
+}
+
+_MEDICINE_TERMS_EN = {**CHEMICALS_EN, **FORM_PHRASES_EN}

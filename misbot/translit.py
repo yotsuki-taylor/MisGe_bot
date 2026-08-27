@@ -208,6 +208,44 @@ _KA_TO_LAT_OVERRIDES_RE = _build_pattern(KA_TO_LAT_OVERRIDES)
 _KA_WORD_RE = re.compile(r"[Ⴀ-ჿ]+")
 
 
+KA_TO_EN_WORDS: Dict[str, str] = {
+    # Слова, которые латиницей читались бы как шум. Города и районы сюда не
+    # нужны: национальная романизация и так даёт «Tbilisi» и «Saburtalo» —
+    # ровно то, что написано на указателях. А вот «qoveldghe» вместо «daily»
+    # не поймёт никто.
+    "სადღეღამისო": "24/7",
+    "აფთიაქი": "Pharmacy",
+    "ყოველდღე": "daily",
+    "შაბათ-კვირა": "Sat–Sun",
+    "დასვენება": "closed",
+    "დასვენების": "closed",
+    "ორშ": "Mon",
+    "სამშ": "Tue",
+    "ოთხ": "Wed",
+    "ხუთ": "Thu",
+    "პარ": "Fri",
+    "შაბ": "Sat",
+    "კვ": "Sun",
+    "შაბათი": "Saturday",
+    "კვირა": "Sunday",
+}
+
+_KA_TO_EN_ALL = {**KA_TO_LAT_OVERRIDES, **KA_TO_EN_WORDS}
+"""Словарь вывесок плюс английские слова: сети остаются собой («Pharmagidi»),
+а «აფთიაქი» становится «Pharmacy», а не «Aptiaqi»."""
+
+_KA_TO_EN_WORDS_RE = _build_pattern(_KA_TO_EN_ALL)
+
+
+def ka_to_english(text: str) -> str:
+    """Грузинский текст для англоязычного интерфейса.
+
+    Имена собственные — романизацией, как на дорожных знаках; расписания и
+    служебные слова — словарём: «ყოველდღე» латиницей не читается никак.
+    """
+    return convert(text, _KA_TO_EN_ALL, _KA_TO_EN_WORDS_RE, gap=_ka_latin_words)
+
+
 def ka_to_latin(text: str) -> str:
     """Грузинский текст латиницей. Слова с большой буквы — это имена собственные.
 
@@ -308,6 +346,9 @@ def _ka_options(text: str, position: int) -> Tuple[Sequence[Option], int]:
     following = text[position + 1] if position + 1 < len(text) else ""
 
     if char in ("კ", "ქ"):
+        # «ქს» — это латинское x: ექსპრესი → express, ამოქსიცილინი → amoxicillin
+        if following == "ს":
+            return (("x", 0), ("ks", 1), ("cs", 3)), 2
         # «ce», «ci» читались бы как «це», «ци» — перед ними остаётся только k
         if following and following in _KA_FRONT_VOWELS:
             return (("k", 0), ("q", 3)), 1

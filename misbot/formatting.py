@@ -9,9 +9,10 @@
 
 **Контент против интерфейса.** Интерфейс переводится словарём, а названия
 препаратов, аптек и адреса приходят с mis.ge и переводятся правилами (forms.py,
-translit.py). Для грузинского интерфейса эти правила выключены: сайт грузинский,
-и показать оригинал правильнее, чем транслитерировать его для того, кто читает
-по-грузински свободнее нас.
+translit.py, landmarks.py) — у каждого свой языковой слой. Для грузинского
+интерфейса эти правила выключены: сайт грузинский, и показать оригинал
+правильнее, чем транслитерировать его для того, кто читает по-грузински
+свободнее нас.
 """
 
 from __future__ import annotations
@@ -24,7 +25,7 @@ from .forms import translate_company, translate_country, translate_medicine
 from .landmarks import translate_landmark
 from .models import Medicine, Pharmacy, Stock
 from .stats import Period
-from .translit import ka_to_latin, ka_to_ru
+from .translit import ka_to_english, ka_to_latin, ka_to_ru
 
 SOURCE_URL = "http://www.mis.ge"
 
@@ -48,18 +49,26 @@ SOURCE_LINE = source_line()
 # --- контент с сайта -------------------------------------------------------
 
 def _medicine_name(name: str, lang: str) -> str:
-    """Название препарата: по-русски или как на сайте."""
-    return name if lang == i18n.KA else translate_medicine(name)
+    """Название препарата: переведённое или как на сайте."""
+    return translate_medicine(name, lang)
 
 
 def _from_site(text: str, lang: str) -> str:
     """Грузинская строка с сайта — город, район, часы работы."""
-    return text if lang == i18n.KA else ka_to_ru(text)
+    if lang == i18n.KA:
+        return text
+    return ka_to_english(text) if lang == i18n.EN else ka_to_ru(text)
 
 
 def _pharmacy_name(name: str, lang: str) -> str:
     """Вывеска аптеки. Грузинскому читателю латиница рядом с ней не нужна."""
-    return name if lang == i18n.KA else pharmacy_label(name)
+    if lang == i18n.KA:
+        return name
+    if lang == i18n.EN:
+        # «აფთიაქი 217» — это не вывеска, а номер: по-английски он читается
+        # как «Pharmacy 217», а не «Aptiaqi 217».
+        return pharmacy_label(name, ka_to_english)
+    return pharmacy_label(name)
 
 
 # --- команды ---------------------------------------------------------------
@@ -204,9 +213,10 @@ def medicines_page(
 
 def _medicine_details(medicine: Medicine, lang: str) -> List[str]:
     """Производитель и страна: для грузинского — как на сайте."""
-    if lang == i18n.KA:
-        return [medicine.company, medicine.country]
-    return [translate_company(medicine.company), translate_country(medicine.country)]
+    return [
+        translate_company(medicine.company, lang),
+        translate_country(medicine.country, lang),
+    ]
 
 
 def shown_stocks(stocks: Sequence[Stock], limit: int = STOCKS_SHOWN) -> List[Stock]:
@@ -319,7 +329,7 @@ def _where_line(stock: Stock, pharmacy: Optional[Pharmacy], lang: str) -> str:
     if pharmacy.landmark:
         # Перевод — чтобы понять, куда идти. Оригинал под ним — чтобы показать
         # прохожему или таксисту. Для грузинского хватает одного оригинала.
-        translated = "" if lang == i18n.KA else translate_landmark(pharmacy.landmark)
+        translated = "" if lang == i18n.KA else translate_landmark(pharmacy.landmark, lang)
         if translated:
             address += f"\n{escape(translated)}"
         address += f"\n<i>{escape(pharmacy.landmark)}</i>"

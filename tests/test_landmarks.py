@@ -7,8 +7,11 @@
 
 from pathlib import Path
 
+import re
+
 import pytest
 
+from misbot import i18n, landmarks
 from misbot.landmarks import has_georgian, translate_landmark
 
 CORPUS = [
@@ -102,3 +105,43 @@ class TestStructure:
     def test_unknown_words_become_transliterated_names(self):
         # Словарь неполон по определению — незнакомое должно проходить насквозь.
         assert translate_landmark("ზაზაძის ქოხი") == "Зазадзи Кохи"
+
+
+class TestEnglish:
+    """Ориентир по-английски: порядок слов другой, не только словарь."""
+
+    def test_dictionaries_have_the_same_keys(self):
+        assert set(landmarks.PLACE_WORDS) == set(landmarks.PLACE_WORDS_EN)
+        assert set(landmarks.NOUNS) == set(landmarks.NOUNS_EN)
+        assert set(landmarks.ADJECTIVES) == set(landmarks.ADJECTIVES_EN)
+
+    @pytest.mark.parametrize(
+        "georgian, english",
+        [
+            ("არქივის პირდაპირ", "opposite archive"),
+            ("ნიუ-ვიჟენის კლინიკის ფოიე", "in the lobby of Niu-Vizheni clinic"),
+        ],
+    )
+    def test_simple_landmarks(self, georgian, english):
+        assert translate_landmark(georgian, i18n.EN) == english
+
+    def test_the_name_goes_before_the_noun(self):
+        # По-русски «клиники Хечинашвили», по-английски наоборот.
+        text = translate_landmark("ხეჩინაშვილის კლინიკის გვერდით", i18n.EN)
+        assert text == "next to Khechinashvili clinic"
+
+    def test_named_after_keeps_the_name_last(self):
+        text = translate_landmark("ი.ჟორდანიას სახელობის სამედიცინო ცენტრი", i18n.EN)
+        assert text == "medical centre named after I.Zhordania"
+
+    def test_numbers_go_after_the_noun(self):
+        text = translate_landmark("მე-9 საავადმყოფოს ეზოში", i18n.EN)
+        assert text == "in the courtyard of hospital No. 9"
+
+    def test_no_russian_leaks_into_english(self):
+        cyrillic = re.compile(r"[а-яА-Я]")
+        for text in CORPUS:
+            assert not cyrillic.search(translate_landmark(text, i18n.EN)), text
+
+    def test_russian_is_untouched(self):
+        assert translate_landmark("არქივის პირდაპირ") == "напротив архива"

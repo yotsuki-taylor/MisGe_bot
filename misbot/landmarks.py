@@ -24,7 +24,8 @@ from __future__ import annotations
 import re
 from typing import Dict, List, Optional, Sequence, Tuple
 
-from .translit import ka_to_ru
+from . import i18n
+from .translit import ka_to_english, ka_to_ru
 
 # Слова места: чем длиннее, тем раньше проверяем.
 #
@@ -147,13 +148,13 @@ _SPLIT_RE = re.compile(r"\s*[,;]\s*")
 _PARENS_RE = re.compile(r"\(([^)]*)\)")
 
 
-def translate_landmark(text: str) -> str:
-    """Русский перевод ориентира. Пустая строка — если переводить нечего."""
+def translate_landmark(text: str, lang: str = i18n.DEFAULT) -> str:
+    """Перевод ориентира. Пустая строка — если переводить нечего."""
     if not text or not text.strip():
         return ""
 
     def parens(match: "re.Match") -> str:
-        inner = _translate_parts(match.group(1))
+        inner = _translate_parts(match.group(1), lang)
         return f"({inner})" if inner else ""
 
     body = _PARENS_RE.sub(lambda m: "\x00" + parens(m) + "\x00", text)
@@ -162,7 +163,7 @@ def translate_landmark(text: str) -> str:
         if chunk.startswith("(") and chunk.endswith(")"):
             parts.append(chunk)
         else:
-            translated = _translate_parts(chunk)
+            translated = _translate_parts(chunk, lang)
             if translated:
                 parts.append(translated)
 
@@ -170,17 +171,19 @@ def translate_landmark(text: str) -> str:
     return re.sub(r"\s+([,)])", r"\1", result)
 
 
-def _translate_parts(text: str) -> str:
-    parts = [_translate_clause(part) for part in _SPLIT_RE.split(text) if part.strip()]
+def _translate_parts(text: str, lang: str = i18n.DEFAULT) -> str:
+    parts = [
+        _translate_clause(part, lang) for part in _SPLIT_RE.split(text) if part.strip()
+    ]
     return ", ".join(part for part in parts if part)
 
 
-def _translate_clause(clause: str) -> str:
+def _translate_clause(clause: str, lang: str = i18n.DEFAULT) -> str:
     clause = clause.strip()
     if not clause:
         return ""
 
-    preposition, rest = _take_place_word(clause)
+    preposition, rest = _take_place_word(clause, lang)
     words = [word for word in rest.split() if word]
 
     ordinals: List[str] = []
@@ -193,57 +196,72 @@ def _translate_clause(clause: str) -> str:
         if _lookup(word, _DROP_TABLE) is not None:
             continue
 
-        ordinal = _ordinal(word)
+        ordinal = _ordinal(word, lang)
         if ordinal:
             ordinals.append(ordinal)
             continue
 
-        translated = _lookup(word, TAIL_NOUNS)
+        translated = _lookup(word, _table(TAIL_NOUNS, TAIL_NOUNS_EN, lang))
         if translated:
             tail.append(translated)
             continue
 
-        translated = _lookup(word, ADJECTIVES)
+        translated = _lookup(word, _table(ADJECTIVES, ADJECTIVES_EN, lang))
         if translated:
             adjectives.append(translated)
             continue
 
-        translated = _lookup(word, NOUNS)
+        translated = _lookup(word, _table(NOUNS, NOUNS_EN, lang))
         if translated:
             nouns.append(translated)
             continue
 
-        translated = _lookup(word, FUNCTION_WORDS)
+        translated = _lookup(word, _table(FUNCTION_WORDS, FUNCTION_WORDS_EN, lang))
         if translated:
             proper.append(translated)
             continue
 
-        proper.append(_proper_noun(word))
+        proper.append(_proper_noun(word, lang))
 
     # Вложенные нарицательные в грузинском идут от частного к общему —
     # «урологии института», по-русски наоборот. Прилагательные же остаются
     # перед своим словом в обоих языках.
     nouns.reverse()
 
-    pieces = [preposition] + adjectives + ordinals + nouns + tail + proper
+    if lang == i18n.EN:
+        # По-английски имя стоит перед нарицательным («Khechinashvili clinic»),
+        # но после «named after» — за ним («medical centre named after
+        # Zhordania»). Номер уходит в хвост: «hospital No. 9».
+        if tail:
+            pieces = adjectives + nouns + tail + proper + ordinals
+        else:
+            pieces = proper + adjectives + nouns + ordinals
+        pieces = [preposition] + pieces
+    else:
+        pieces = [preposition] + adjectives + ordinals + nouns + tail + proper
     return " ".join(piece for piece in pieces if piece).strip()
 
 
-def _take_place_word(clause: str) -> Tuple[str, str]:
+def _table(russian: Dict[str, str], english: Dict[str, str], lang: str) -> Dict[str, str]:
+    return english if lang == i18n.EN else russian
+
+
+def _take_place_word(clause: str, lang: str = i18n.DEFAULT) -> Tuple[str, str]:
     """Отделить слово места от конца части и вернуть предлог с остатком."""
+    places = _table(PLACE_WORDS, PLACE_WORDS_EN, lang)
     lowered = clause.rstrip(".")
-    for georgian in sorted(PLACE_WORDS, key=len, reverse=True):
+    for georgian in sorted(places, key=len, reverse=True):
         if lowered.endswith(georgian):
-            return PLACE_WORDS[georgian], lowered[: -len(georgian)].strip()
+            return places[georgian], lowered[: -len(georgian)].strip()
         # «X-ის გვერდით აფთიაქი» — слово места не последнее, но и не в начале.
         marker = f" {georgian} "
         if marker in lowered:
             head, _, tail = lowered.partition(marker)
-            return PLACE_WORDS[georgian], f"{head} {tail}".strip()
+            return places[georgian], f"{head} {tail}".strip()
 
     words = lowered.split()
     if words:
-        for suffix, preposition in _SUFFIX_PLACE.items():
+        for suffix, preposition in _table(_SUFFIX_PLACE, _SUFFIX_PLACE_EN, lang).items():
             if words[-1].endswith(suffix) and len(words[-1]) > len(suffix) + 2:
                 words[-1] = words[-1][: -len(suffix)]
                 return preposition, " ".join(words)
@@ -262,9 +280,11 @@ def _lookup(word: str, table: Dict[str, str]) -> Optional[str]:
     return None
 
 
-def _ordinal(word: str) -> Optional[str]:
+def _ordinal(word: str, lang: str = i18n.DEFAULT) -> Optional[str]:
     match = _ORDINAL_RE.match(word.strip('"«»()'))
-    return f"{match.group(1)}-й" if match else None
+    if match is None:
+        return None
+    return f"No. {match.group(1)}" if lang == i18n.EN else f"{match.group(1)}-й"
 
 
 _GENITIVE_SUFFIXES = ("ისა", "ის", "ს")
@@ -287,7 +307,7 @@ def _nominative(word: str) -> str:
     return word
 
 
-def _proper_noun(word: str) -> str:
+def _proper_noun(word: str, lang: str = i18n.DEFAULT) -> str:
     """Имя собственное: приводим к именительному, транслитерируем, кавычки на место."""
     prefix = ""
     suffix = ""
@@ -302,6 +322,10 @@ def _proper_noun(word: str) -> str:
         return prefix + suffix
 
     base = _nominative(word)
+    if lang == i18n.EN:
+        # Имена — романизацией, как на указателях: «ხეჩინაშვილი» → «Khechinashvili».
+        return prefix + _capitalize(ka_to_english(base)) + suffix
+
     known = PROPER_NAMES.get(base)
     transliterated = known if known else _capitalize(ka_to_ru(base))
     return prefix + transliterated + suffix
@@ -314,3 +338,98 @@ def _capitalize(text: str) -> str:
 
 def has_georgian(text: str) -> bool:
     return bool(re.search(r"[Ⴀ-ჿ]", text))
+
+
+# --- английский слой -------------------------------------------------------
+#
+# Ключи те же, значения — английские, но в именительном падеже: в английском
+# предлог ничем не управляет. Порядок слов другой, им занимается сборка ниже.
+
+PLACE_WORDS_EN: Dict[str, str] = {
+    "მოპირდაპირე მხარეს": "opposite",
+    "მოპირდაპირე მხარე": "opposite",
+    "მიმართულებით მარჯვენა მხარე": "on the right, towards",
+    "მიმართულებით მარცხენა მხარე": "on the left, towards",
+    "მიმართულებით": "towards",
+    "შესასვლელში": "at the entrance to",
+    "შესასვლელთან": "at the entrance to",
+    "გადასასვლელში": "in the underpass by",
+    "მიმდებარედ": "next to",
+    "მიმდებარე": "next to",
+    "პირდაპირ": "opposite",
+    "გვერდით": "next to",
+    "უკან": "behind",
+    "წინ": "in front of",
+    "ეზოში": "in the courtyard of",
+    "ფოიე": "in the lobby of",
+    "კვეთა": "junction of",
+    "კუთხე": "corner of",
+    "დასაწყისი": "start of",
+    "ბოლოს": "at the end of",
+    "შენობაში": "in the building of",
+    "შენობის": "in the building of",
+    "ტერიტორიაზე": "on the grounds of",
+    "სართული": "floor",
+}
+
+NOUNS_EN: Dict[str, str] = {
+    "საავადმყოფო": "hospital",
+    "კლინიკ": "clinic",
+    "ინსტიტუტ": "institute",
+    "ცენტრ": "centre",
+    "პოლიკლინიკ": "polyclinic",
+    "ქუჩების": "streets",
+    "ქუჩ": "street",
+    "გამზირ": "avenue",
+    "მოედან": "square",
+    "სტადიონ": "stadium",
+    "პარკ": "park",
+    "ბანკ": "bank",
+    "მაღაზი": "shop",
+    "სუპერმარკეტ": "supermarket",
+    "ბაზრ": "market",
+    "ბაზარ": "market",
+    "სკოლ": "school",
+    "უნივერსიტეტ": "university",
+    "საელჩო": "embassy",
+    "ეკლესი": "church",
+    "თეატრ": "theatre",
+    "რესტორან": "restaurant",
+    "სასტუმრო": "hotel",
+    "ძეგლ": "monument",
+    "ხიდ": "bridge",
+    "სახლ": "building",
+    "შენობ": "building",
+    "გამოფენ": "exhibition centre",
+    "გამომცემლობ": "publishing house",
+    "სადგურ": "railway station",
+    "გზ": "road",
+    "ბაღ": "garden",
+    "სამშობიარო": "maternity hospital",
+    "მეტრო": "metro",
+    "გადასასვლელ": "underpass",
+    "უროლოგი": "urology",
+    "პარაზიტოლოგი": "parasitology",
+    "არქივ": "archive",
+    "ბიბლიოთეკ": "library",
+    "ფოსტ": "post office",
+    "სასწრაფო": "ambulance station",
+    "ლაბორატორი": "laboratory",
+}
+
+ADJECTIVES_EN: Dict[str, str] = {
+    "კლინიკურ": "clinical",
+    "სამედიცინო": "medical",
+    "მიწისქვეშა": "underground",
+    "ყოფილი": "former",
+    "დანიური": "Danish",
+    "ცენტრალურ": "central",
+    "ახალ": "new",
+    "ძველ": "old",
+}
+
+TAIL_NOUNS_EN: Dict[str, str] = {"სახელობის": "named after"}
+
+FUNCTION_WORDS_EN: Dict[str, str] = {"და": "and"}
+
+_SUFFIX_PLACE_EN: Dict[str, str] = {"თან": "near"}

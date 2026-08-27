@@ -56,8 +56,10 @@ class TestDictionary:
         # переводить нечего: одинаковые для всех надписи.
         same_on_purpose = {"choose_language"}
         copied = [
-            key for key, row in i18n.STRINGS.items()
-            if key not in same_on_purpose and row.get(i18n.KA) == row[i18n.RU]
+            (key, lang)
+            for key, row in i18n.STRINGS.items()
+            for lang in i18n.SUPPORTED
+            if key not in same_on_purpose and lang != i18n.RU and row.get(lang) == row[i18n.RU]
         ]
         assert copied == []
 
@@ -94,12 +96,13 @@ class TestText:
 
 
 class TestSupported:
-    def test_russian_and_georgian_are_offered(self):
-        assert i18n.SUPPORTED == (i18n.RU, i18n.KA)
+    def test_all_three_languages_are_offered(self):
+        assert i18n.SUPPORTED == (i18n.RU, i18n.KA, i18n.EN)
 
-    def test_english_is_not_offered_until_it_is_translated(self):
-        # Кнопка, ведущая на русский интерфейс, обманывала бы.
-        assert not i18n.known(i18n.EN)
+    def test_an_unknown_language_is_not_offered(self):
+        # В SUPPORTED попадает только то, для чего есть переводы: кнопка,
+        # ведущая на чужой интерфейс, обманывала бы.
+        assert not i18n.known("de")
 
     def test_every_supported_language_has_a_name_for_the_button(self):
         assert all(i18n.NAMES.get(lang) for lang in i18n.SUPPORTED)
@@ -107,6 +110,7 @@ class TestSupported:
     def test_languages_are_named_in_themselves(self):
         assert i18n.NAMES[i18n.KA] == "ქართული"
         assert i18n.NAMES[i18n.RU] == "Русский"
+        assert i18n.NAMES[i18n.EN] == "English"
 
 
 class TestEveryTextRenders:
@@ -142,7 +146,7 @@ class TestNothingFound:
     @pytest.mark.parametrize("lang", i18n.SUPPORTED)
     def test_still_suggests_the_active_ingredient(self, lang):
         text = i18n.STRINGS["nothing_found"][lang]
-        assert "ибупрофен" in text or "იბუპროფენი" in text
+        assert any(name in text for name in ("ибупрофен", "იბუპროფენი", "ibuprofen"))
 
     @pytest.mark.parametrize("lang", i18n.SUPPORTED)
     def test_repeats_what_was_asked(self, lang):

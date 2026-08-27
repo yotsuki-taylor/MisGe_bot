@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from misbot import formatting as fmt
+from misbot import i18n
 from misbot.models import Medicine, Stock
 from misbot.parser import parse_pharmacies, parse_pharmacy_card, parse_search
 
@@ -297,3 +298,35 @@ class TestStaticTexts:
 
     def test_user_query_is_escaped(self):
         assert "<script>" not in fmt.nothing_found("<script>")
+
+
+class TestEnglishContent:
+    """Что видит англоязычный там, где мы переводим контент с сайта."""
+
+    def test_numbered_pharmacies_read_as_pharmacy(self):
+        # «აფთიაქი 217» — это номер, а не вывеска: «Aptiaqi» тут читается как шум.
+        assert fmt._pharmacy_name("აფთიაქი 217", i18n.EN) == "Pharmacy 217 (აფთიაქი 217)"
+
+    def test_chain_names_keep_their_own_spelling(self):
+        assert fmt._pharmacy_name("ფარმაგიდი გეა", i18n.EN).startswith("Pharmagidi Gea")
+
+    def test_legal_forms_are_spelled_out(self):
+        assert fmt._pharmacy_name('შპს "გეა"', i18n.EN).startswith('LLC "Gea"')
+
+    def test_cities_and_districts_are_romanised(self):
+        assert fmt._from_site("თბილისი", i18n.EN) == "Tbilisi"
+        assert fmt._from_site("საბურთალო", i18n.EN) == "Saburtalo"
+
+    def test_opening_hours_are_translated(self):
+        assert fmt._from_site("9.00-21.30 ყოველდღე", i18n.EN) == "9.00-21.30 daily"
+        assert "Sun/closed" in fmt._from_site("კვ/დასვენება", i18n.EN)
+
+    def test_georgian_keeps_everything_as_it_is(self):
+        assert fmt._from_site("თბილისი", i18n.KA) == "თბილისი"
+        assert fmt._pharmacy_name("აფთიაქი 217", i18n.KA) == "აფთიაქი 217"
+
+    def test_stock_line_is_fully_english(self):
+        text = fmt.stocks_message([stock()], "Tbilisi", lang=i18n.EN)
+        assert "price not listed" not in text
+        assert "updated" in text
+        assert "Source:" in text

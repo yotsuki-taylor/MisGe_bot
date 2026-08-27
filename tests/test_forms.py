@@ -10,6 +10,8 @@ from pathlib import Path
 
 import pytest
 
+from misbot import i18n
+from misbot import forms
 from misbot.forms import (
     translate_company,
     translate_country,
@@ -227,3 +229,67 @@ class TestCompaniesAndGenerics:
     def test_missing_data_becomes_empty(self):
         assert translate_company("-") == ""
         assert translate_generic("-") == ""
+
+
+class TestEnglish:
+    """Контент по-английски: словари те же, слой другой."""
+
+    @pytest.mark.parametrize(
+        "russian, english",
+        [
+            ("FORM_PHRASES", "FORM_PHRASES_EN"),
+            ("COUNTRIES", "COUNTRIES_EN"),
+            ("CHEMICALS", "CHEMICALS_EN"),
+            ("DISPENSING_PHRASES", "DISPENSING_PHRASES_EN"),
+            ("UNITS", "UNITS_EN"),
+        ],
+    )
+    def test_dictionaries_have_the_same_keys(self, russian, english):
+        # Разъехавшиеся ключи — это дырка, которая проявится на живом названии.
+        assert set(getattr(forms, russian)) == set(getattr(forms, english))
+
+    def test_english_values_are_not_russian(self):
+        cyrillic = re.compile(r"[а-яА-Я]")
+        for name in (
+            "FORM_PHRASES_EN", "COUNTRIES_EN", "CHEMICALS_EN", "DISPENSING_PHRASES_EN",
+        ):
+            leftovers = [v for v in getattr(forms, name).values() if cyrillic.search(v)]
+            assert leftovers == [], name
+
+    @pytest.mark.parametrize(
+        "georgian, english",
+        [
+            ("ნუროფენ ექსპრესი 200მგ შემოგარსული აბი - #16",
+             "Nurofen Expres 200 mg coated tablets, 16 pcs."),
+            ("პარაცეტამოლი 500მგ აბი - #10", "Paracetamol 500 mg tablets, 10 pcs."),
+            ("ციტრამონი", "Citramon"),
+        ],
+    )
+    def test_medicine_names(self, georgian, english):
+        assert translate_medicine(georgian, i18n.EN) == english
+
+    def test_countries(self):
+        assert translate_country("ნიდერლანდები", i18n.EN) == "Netherlands"
+        assert translate_country("დიდი ბრიტანეთი", i18n.EN) == "United Kingdom"
+
+    def test_dispensing(self):
+        text = translate_dispensing("III ჯგუფი, გაიცემა რეცეპტის გარეშე", i18n.EN)
+        assert text == "III group, without prescription"
+
+    def test_generic(self):
+        assert translate_generic("იბუპროფენი", i18n.EN) == "Ibuprofen"
+        assert translate_generic("ასკორბინის მჟავა", i18n.EN) == "Ascorbic acid"
+
+    def test_brands_use_the_international_spelling(self):
+        # Романизация вывесок дала бы «Nuropen»: там ფ — это p.
+        assert "Nurofen" in translate_medicine("ნუროფენი", i18n.EN)
+
+    def test_georgian_keeps_the_original(self):
+        # Сайт грузинский — переводить его обратно незачем.
+        name = "ნუროფენ ექსპრესი 200მგ შემოგარსული აბი"
+        assert translate_medicine(name, i18n.KA) == name
+        assert translate_country("ნიდერლანდები", i18n.KA) == "ნიდერლანდები"
+
+    def test_russian_is_untouched(self):
+        assert translate_medicine("ნუროფენი") == "Нурофен"
+        assert translate_country("ნიდერლანდები") == "Нидерланды"
