@@ -161,6 +161,15 @@ def city_unknown(lang: str = i18n.DEFAULT) -> str:
     return i18n.text("city_unknown", lang)
 
 
+IN_STOCK_MARK = "✅"
+OUT_OF_STOCK_MARK = "⚠️"
+"""Значки наличия в списке найденного.
+
+Строка наличия — единственное, ради чего список вообще просматривают сверху
+вниз, и глазами она ищется быстрее по значку, чем по слову.
+"""
+
+
 def pharmacies_count(count: int, lang: str = i18n.DEFAULT) -> str:
     """«в 1 аптеке», «в 2 аптеках», «в 21 аптеке» — и «нет в наличии» на ноль.
 
@@ -168,10 +177,10 @@ def pharmacies_count(count: int, lang: str = i18n.DEFAULT) -> str:
     существительное не меняет, и обе строки словаря там совпадают.
     """
     if count <= 0:
-        return i18n.text("out_of_stock", lang)
+        return f"{OUT_OF_STOCK_MARK} {i18n.text('out_of_stock', lang)}"
     single = count % 10 == 1 and count % 100 != 11
     key = "in_stock_one" if single else "in_stock_many"
-    return i18n.text(key, lang).format(count=count)
+    return f"{IN_STOCK_MARK} {i18n.text(key, lang).format(count=count)}"
 
 
 def medicines_page(

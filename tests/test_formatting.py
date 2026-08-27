@@ -87,17 +87,23 @@ class TestMedicinesPage:
     @pytest.mark.parametrize(
         "count, expected",
         [
-            (0, "нет в наличии"),
-            (1, "есть в 1 аптеке"),
-            (2, "есть в 2 аптеках"),
-            (5, "есть в 5 аптеках"),
-            (11, "есть в 11 аптеках"),
-            (21, "есть в 21 аптеке"),
-            (111, "есть в 111 аптеках"),
+            (0, "⚠️ нет в наличии"),
+            (1, "✅ есть в 1 аптеке"),
+            (2, "✅ есть в 2 аптеках"),
+            (5, "✅ есть в 5 аптеках"),
+            (11, "✅ есть в 11 аптеках"),
+            (21, "✅ есть в 21 аптеке"),
+            (111, "✅ есть в 111 аптеках"),
         ],
     )
     def test_pharmacy_count_is_declined(self, count, expected):
         assert fmt.pharmacies_count(count) == expected
+
+    @pytest.mark.parametrize("lang", i18n.SUPPORTED)
+    def test_availability_is_marked_on_every_language(self, lang):
+        # Значок ищется глазами быстрее слова — на любом языке.
+        assert fmt.pharmacies_count(9, lang).startswith(fmt.IN_STOCK_MARK)
+        assert fmt.pharmacies_count(0, lang).startswith(fmt.OUT_OF_STOCK_MARK)
 
     def test_pack_size_is_readable(self, medicines):
         text, _ = fmt.medicines_page(medicines, 0, "Тбилиси")
