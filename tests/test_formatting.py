@@ -87,7 +87,7 @@ class TestMedicinesPage:
     @pytest.mark.parametrize(
         "count, expected",
         [
-            (0, "⚠️ нет в наличии"),
+            (0, "🚫 нет в наличии"),
             (1, "✅ есть в 1 аптеке"),
             (2, "✅ есть в 2 аптеках"),
             (5, "✅ есть в 5 аптеках"),
@@ -104,6 +104,10 @@ class TestMedicinesPage:
         # Значок ищется глазами быстрее слова — на любом языке.
         assert fmt.pharmacies_count(9, lang).startswith(fmt.IN_STOCK_MARK)
         assert fmt.pharmacies_count(0, lang).startswith(fmt.OUT_OF_STOCK_MARK)
+
+    def test_the_out_of_stock_mark_is_not_the_stale_one(self):
+        # ⚠️ означает «остаток давно не обновляли» — другой смысл.
+        assert fmt.OUT_OF_STOCK_MARK != "⚠️"
 
     def test_pack_size_is_readable(self, medicines):
         text, _ = fmt.medicines_page(medicines, 0, "Тбилиси")
