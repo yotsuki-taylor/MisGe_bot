@@ -31,7 +31,9 @@ class TestDictionary:
             (key, lang)
             for key, row in i18n.STRINGS.items()
             for lang in i18n.SUPPORTED
-            if not row.get(lang)
+            # Формы числа проверяет TestPlural: языку не нужна строка формы,
+            # которой у него нет, — английский никогда не спросит «few».
+            if not row.get(lang) and not counted(key)
         ]
         assert missing == []
 
@@ -77,6 +79,17 @@ class TestDictionary:
         assert suspicious == []
 
 
+def counted(key: str) -> bool:
+    """Ключ одной из форм числа: key_one, key_few, key_many."""
+    stem, _, form = key.rpartition("_")
+    return bool(stem) and form in i18n.FORM_NAMES
+
+
+def stems() -> list:
+    """Основы ключей, у которых есть формы числа."""
+    return sorted({key.rpartition("_")[0] for key in i18n.STRINGS if counted(key)})
+
+
 def _without_examples(text: str) -> str:
     """Убрать <code>…</code>: там нарочно стоят примеры запросов на трёх языках."""
     return re.sub(r"<code>.*?</code>", "", text, flags=re.S)
@@ -93,6 +106,59 @@ class TestText:
         # Молча отдать пустоту хуже: дырка в тексте дойдёт до пользователя.
         with pytest.raises(KeyError):
             i18n.text("такого-ключа-нет", i18n.RU)
+
+
+class TestPlural:
+    """Число и существительное должны согласоваться на каждом языке."""
+
+    @pytest.mark.parametrize("lang", i18n.SUPPORTED)
+    @pytest.mark.parametrize("stem", stems())
+    def test_every_count_has_a_string_in_the_asked_language(self, stem, lang):
+        # Откат на русский тут был бы не пустотой, а русской фразой посреди
+        # грузинского ответа — заметить такое можно только глазами.
+        missing = [
+            count for count in range(0, 1000)
+            if not i18n.STRINGS[i18n.plural_key(stem, count, lang)].get(lang)
+        ]
+        assert missing == []
+
+    @pytest.mark.parametrize("stem", stems())
+    def test_every_form_is_reachable(self, stem):
+        # Ключ, до которого не доводит ни одно число, — забытая правка.
+        used = {
+            i18n.plural_key(stem, count, lang)
+            for lang in i18n.SUPPORTED for count in range(0, 1000)
+        }
+        unused = [key for key in i18n.STRINGS if key.startswith(f"{stem}_") and key not in used]
+        assert unused == []
+
+    def test_russian_agrees_with_the_number(self):
+        assert i18n.plural("more_pharmacies", 1, i18n.RU).startswith("…и ещё 1 аптека")
+        assert i18n.plural("more_pharmacies", 3, i18n.RU).startswith("…и ещё 3 аптеки")
+        assert i18n.plural("more_pharmacies", 7, i18n.RU).startswith("…и ещё 7 аптек")
+
+    def test_russian_teens_are_the_exception(self):
+        # 11 и 14 звучат как 5, а не как 1 и 4, — на этом ломаются наивные правила.
+        assert i18n.plural("more_pharmacies", 11, i18n.RU).startswith("…и ещё 11 аптек ")
+        assert i18n.plural("more_pharmacies", 14, i18n.RU).startswith("…и ещё 14 аптек ")
+        assert i18n.plural("more_pharmacies", 21, i18n.RU).startswith("…и ещё 21 аптека")
+        assert i18n.plural("more_pharmacies", 22, i18n.RU).startswith("…и ещё 22 аптеки")
+
+    def test_english_singular_is_only_the_number_one(self):
+        # Русское правило дало бы «21 more pharmacy».
+        assert "1 more pharmacy " in i18n.plural("more_pharmacies", 1, i18n.EN)
+        assert "21 more pharmacies" in i18n.plural("more_pharmacies", 21, i18n.EN)
+
+    @pytest.mark.parametrize("count", [1, 2, 5, 11, 21])
+    def test_georgian_keeps_one_form(self, count):
+        # После числительного существительное не меняется.
+        assert str(count) in i18n.plural("more_pharmacies", count, i18n.KA)
+        assert "აფთიაქი" in i18n.plural("more_pharmacies", count, i18n.KA)
+
+    def test_a_missing_form_falls_back_to_many(self):
+        # «в 2 аптеках» и «в 5 аптеках» — одна строка, отдельной few нет.
+        assert i18n.plural_key("in_stock", 2, i18n.RU) == "in_stock_many"
+        assert i18n.plural_key("in_stock", 1, i18n.RU) == "in_stock_one"
 
 
 class TestSupported:

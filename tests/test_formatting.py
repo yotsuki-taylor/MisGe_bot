@@ -183,6 +183,21 @@ class TestStocksMessage:
         assert "&lt;b&gt;" in text
         assert "&amp;" in text
 
+    @staticmethod
+    def hiding(count: int):
+        """Аптеки, из которых в сообщение попадут не все: столько останется за кадром."""
+        return [
+            stock(pharmacy_id=number, pharmacy_name=f"აფთიაქი {number}", price=Decimal(number))
+            for number in range(1, fmt.STOCKS_SHOWN + count + 1)
+        ]
+
+    @pytest.mark.parametrize(
+        "hidden, expected",
+        [(1, "…и ещё 1 аптека"), (3, "…и ещё 3 аптеки"), (7, "…и ещё 7 аптек")],
+    )
+    def test_the_hidden_pharmacies_line_agrees_with_the_number(self, hidden, expected):
+        assert expected in fmt.stocks_message(self.hiding(hidden), "Тбилиси")
+
 
 class TestAddresses:
     @staticmethod

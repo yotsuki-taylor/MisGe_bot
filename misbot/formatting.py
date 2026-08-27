@@ -174,16 +174,10 @@ OUT_OF_STOCK_MARK = "🚫"
 
 
 def pharmacies_count(count: int, lang: str = i18n.DEFAULT) -> str:
-    """«в 1 аптеке», «в 2 аптеках», «в 21 аптеке» — и «нет в наличии» на ноль.
-
-    Форм две, потому что этого требует русский; в грузинском числительное
-    существительное не меняет, и обе строки словаря там совпадают.
-    """
+    """«в 1 аптеке», «в 2 аптеках», «в 21 аптеке» — и «нет в наличии» на ноль."""
     if count <= 0:
         return f"{OUT_OF_STOCK_MARK} {i18n.text('out_of_stock', lang)}"
-    single = count % 10 == 1 and count % 100 != 11
-    key = "in_stock_one" if single else "in_stock_many"
-    return f"{IN_STOCK_MARK} {i18n.text(key, lang).format(count=count)}"
+    return f"{IN_STOCK_MARK} {i18n.plural('in_stock', count, lang)}"
 
 
 def medicines_page(
@@ -265,7 +259,7 @@ def stocks_message(
         lines.append("")
 
     if len(unique) > len(shown):
-        more = i18n.text("more_pharmacies", lang).format(count=len(unique) - len(shown))
+        more = i18n.plural("more_pharmacies", len(unique) - len(shown), lang)
         lines.append(f"<i>{more}</i>")
         lines.append("")
 

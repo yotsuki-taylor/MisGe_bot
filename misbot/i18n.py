@@ -17,7 +17,7 @@
 
 from __future__ import annotations
 
-from typing import Dict, Tuple
+from typing import Callable, Dict, Tuple
 
 RU = "ru"
 KA = "ka"
@@ -49,6 +49,57 @@ def text(key: str, lang: str) -> str:
 
 def known(lang: str) -> bool:
     return lang in SUPPORTED
+
+
+def _russian_form(count: int) -> str:
+    """Одна аптека, две аптеки, пять аптек — и снова двадцать одна аптека."""
+    if count % 10 == 1 and count % 100 != 11:
+        return "one"
+    if 2 <= count % 10 <= 4 and not 12 <= count % 100 <= 14:
+        return "few"
+    return "many"
+
+
+def _english_form(count: int) -> str:
+    """Единственное число только на самой единице: 21 pharmacies."""
+    return "one" if count == 1 else "many"
+
+
+def _georgian_form(count: int) -> str:
+    """Числительное существительное не меняет — форма всегда одна."""
+    return "many"
+
+
+FORM: Dict[str, Callable[[int], str]] = {
+    RU: _russian_form,
+    KA: _georgian_form,
+    EN: _english_form,
+}
+"""Как язык согласует существительное с числом.
+
+Правила разные не по стилю, а по устройству языков, и общего «если 1» тут не
+хватает: в русском 21 ведёт себя как 1, в английском — как 20.
+"""
+
+
+FORM_NAMES: Tuple[str, ...] = ("one", "few", "many")
+
+
+def plural_key(key: str, count: int, lang: str) -> str:
+    """Какой ключ словаря отвечает за это число на этом языке.
+
+    Формы лежат отдельными ключами — key_one, key_few, key_many. Формы few
+    может не быть: там, где она совпадает с many («в 2 аптеках» и «в 5 аптеках»
+    отличаются только числом), писать её отдельно значило бы держать две
+    одинаковые строки и однажды поправить одну из них.
+    """
+    name = f"{key}_{FORM.get(lang, FORM[DEFAULT])(count)}"
+    return name if name in STRINGS else f"{key}_many"
+
+
+def plural(key: str, count: int, lang: str) -> str:
+    """Строка с числом в нужной форме: «1 аптека», «2 аптеки», «5 аптек»."""
+    return text(plural_key(key, count, lang), lang).format(count=count)
 
 
 STRINGS: Dict[str, Dict[str, str]] = {
@@ -288,7 +339,14 @@ STRINGS: Dict[str, Dict[str, str]] = {
         EN: "This medicine isn't available in <b>{city}</b> right now.\n\n"
             "Try another city with /city.",
     },
-    "more_pharmacies": {
+    "more_pharmacies_one": {
+        RU: "…и ещё {count} аптека — показываю самые дешёвые.",
+        EN: "…and {count} more pharmacy — showing the cheapest.",
+    },
+    "more_pharmacies_few": {
+        RU: "…и ещё {count} аптеки — показываю самые дешёвые.",
+    },
+    "more_pharmacies_many": {
         RU: "…и ещё {count} аптек — показываю самые дешёвые.",
         KA: "…და კიდევ {count} აფთიაქი — ვაჩვენებ ყველაზე იაფებს.",
         EN: "…and {count} more pharmacies — showing the cheapest.",
