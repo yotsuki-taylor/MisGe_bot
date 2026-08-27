@@ -154,3 +154,19 @@ class TestNothingFound:
 
     def test_the_query_is_escaped(self):
         assert "&lt;b&gt;" in fmt.nothing_found("<b>x</b>")
+
+
+class TestLanguagePrompt:
+    """Экран выбора видят до того, как язык выбран."""
+
+    def test_names_every_language(self):
+        # Человек должен узнать свой язык, не зная остальных.
+        prompt = fmt.choose_language()
+        assert "Выберите язык" in prompt
+        assert "აირჩიეთ ენა" in prompt
+        assert "Choose a language" in prompt
+
+    @pytest.mark.parametrize("lang", i18n.SUPPORTED)
+    def test_looks_the_same_whatever_the_current_language(self, lang):
+        # Текущий язык тут ни при чём: показывать надо одно и то же.
+        assert i18n.text("choose_language", lang) == fmt.choose_language()
